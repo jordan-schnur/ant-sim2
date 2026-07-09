@@ -101,6 +101,7 @@ fn food_patch(grid: &mut Grid, px: f32, py: f32, cfg: &Config) {
     stamp(grid, px, py, r, |g, i| {
         if !g.stone[i] && g.nest[i] == crate::grid::NO_NEST {
             g.food[i] = maxf;
+            g.fertility[i] = maxf;
         }
     });
 }

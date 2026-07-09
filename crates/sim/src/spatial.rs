@@ -16,7 +16,29 @@ pub struct Spatial {
     occupant: Vec<u32>,
 }
 
+impl Default for Spatial {
+    fn default() -> Self {
+        Spatial {
+            width: 0,
+            height: 0,
+            cell_start: vec![0],
+            items: Vec::new(),
+            occupant: Vec::new(),
+        }
+    }
+}
+
 impl Spatial {
+    /// Re-shape an index for a given config. Used after loading a snapshot,
+    /// where the index is rebuilt rather than serialised.
+    pub fn resize(&mut self, cfg: &Config) {
+        *self = Spatial::new(cfg);
+    }
+
+    pub fn cell_count(&self) -> usize {
+        self.occupant.len()
+    }
+
     pub fn new(cfg: &Config) -> Self {
         Spatial {
             width: cfg.width,
