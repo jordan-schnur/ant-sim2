@@ -12,3 +12,6 @@ bincode.workspace = true
 # The determinism test builds its own thread pool to prove the tick's result
 # does not depend on how many threads rayon happens to use.
 rayon.workspace = true
+# Integration tests are separate crates and cannot reach sim's own dependencies;
+# `known_good` serialises a Genome fixture directly.
+bincode.workspace = true

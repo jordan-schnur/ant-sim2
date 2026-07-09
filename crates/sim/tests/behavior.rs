@@ -135,7 +135,10 @@ fn scripted_intent(i: usize, ants: &Ants, w: &World, spatial: &Spatial) -> Inten
 /// Run the scripted colony. Deliberately does *not* call `sweep_deaths` or
 /// `reproduce`: this measures the foraging economy alone.
 fn run_scripted(seed: u64, ticks: u32) -> World {
-    let c = cfg();
+    run_scripted_with(cfg(), seed, ticks)
+}
+
+fn run_scripted_with(c: Config, seed: u64, ticks: u32) -> World {
     let mut w = World::new(&c, seed);
     let mut spatial = Spatial::new(&c);
     for _ in 0..ticks {
@@ -245,4 +248,34 @@ fn a_random_colony_does_not_immediately_explode_in_population() {
         w.ants.len() < 5_000,
         "population ran away: birth_cost is too cheap"
     );
+}
+
+
+/// The maps are not the problem; the search is.
+///
+/// `tests/known_good.rs` hill-climbs a genome that delivers thousands of food on
+/// map seed 2 and **exactly zero** on seeds 1 and 3 — for every genome in its
+/// 300-generation lineage, including the random one it started from. That looks
+/// like a broken map until you run a competent controller over the same three
+/// maps, which is what this test does. All three are richly forageable. The
+/// zeroes are a sparse-reward problem in the search, not terrain.
+#[test]
+fn the_scripted_forager_profits_on_every_map_the_genome_search_uses() {
+    let search_cfg = || Config {
+        width: 48,
+        height: 48,
+        num_colonies: 1,
+        initial_ants_per_colony: 30,
+        food_patch_count: 4,
+        ..Config::default()
+    };
+    for seed in [1u64, 2, 3] {
+        let w = run_scripted_with(search_cfg(), seed, 3_000);
+        let delivered: f32 = w.ants.food_delivered.iter().sum();
+        assert!(
+            delivered > 1_000.0,
+            "seed {seed}: a scripted forager delivered only {delivered:.0}. If this map \
+             really is barren, the genome search's zero scores on it mean nothing."
+        );
+    }
 }
