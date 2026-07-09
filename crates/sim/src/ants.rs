@@ -227,6 +227,7 @@ mod tests {
         assert_eq!(a.genome.len(), n);
         assert_eq!(a.rng.len(), n);
         assert_eq!(a.alive.len(), n);
+        assert_eq!(a.attacking.len(), n);
     }
 
     #[test]
