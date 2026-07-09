@@ -30,9 +30,15 @@ pub struct ColonyState {
     /// the operator must be able to see the difference.
     pub floor_spawns: u64,
     pub last_floor_spawn: u64,
-    /// Best genomes ever seen, by food delivered, sorted descending. Used only
-    /// by the extinction floor. A research-tool affordance, not biology.
-    pub hall_of_fame: Vec<(f32, Genome)>,
+    /// Best genomes ever seen, by food delivered, sorted descending, each with
+    /// the lineage depth of the ant that earned it. Used only by the extinction
+    /// floor. A research-tool affordance, not biology.
+    ///
+    /// The lineage is stored because a floor-spawned ant is a *descendant* of
+    /// its archived parent and must inherit its depth. Without it, a colony that
+    /// lives on the floor — which is most of them — reports the same generation
+    /// number forever.
+    pub hall_of_fame: Vec<(f32, u32, Genome)>,
     pub next_lineage_hint: u32,
 }
 
@@ -53,11 +59,15 @@ impl ColonyState {
         }
     }
 
-    pub fn record_death(&mut self, fitness: f32, genome: &Genome, cap: usize) {
+    pub fn record_death(&mut self, fitness: f32, lineage: u32, genome: &Genome, cap: usize) {
         self.deaths += 1;
         if self.hall_of_fame.len() >= cap {
             // Sorted descending, so the last entry is the weakest.
-            if self.hall_of_fame.last().map_or(false, |(f, _)| *f >= fitness) {
+            if self
+                .hall_of_fame
+                .last()
+                .map_or(false, |(f, _, _)| *f >= fitness)
+            {
                 return;
             }
             self.hall_of_fame.pop();
@@ -65,9 +75,10 @@ impl ColonyState {
         let pos = self
             .hall_of_fame
             .iter()
-            .position(|(f, _)| *f < fitness)
+            .position(|(f, _, _)| *f < fitness)
             .unwrap_or(self.hall_of_fame.len());
-        self.hall_of_fame.insert(pos, (fitness, genome.clone()));
+        self.hall_of_fame
+            .insert(pos, (fitness, lineage, genome.clone()));
     }
 
     /// Roulette-wheel over living ants **of this colony only**, weighted by
@@ -99,12 +110,14 @@ impl ColonyState {
         last
     }
 
-    pub fn archive_parent(&self, rng: &mut Pcg32) -> Option<&Genome> {
+    /// A genome from the archive and the lineage depth it was at when it died.
+    pub fn archive_parent(&self, rng: &mut Pcg32) -> Option<(&Genome, u32)> {
         if self.hall_of_fame.is_empty() {
             return None;
         }
         let k = rng.next_below(self.hall_of_fame.len() as u32) as usize;
-        Some(&self.hall_of_fame[k].1)
+        let (_, lineage, genome) = &self.hall_of_fame[k];
+        Some((genome, *lineage))
     }
 }
 
@@ -143,17 +156,17 @@ mod tests {
     fn hall_of_fame_keeps_the_best_and_respects_the_cap() {
         let mut c = ColonyState::new(0);
         for f in [5.0, 1.0, 9.0, 3.0, 7.0] {
-            c.record_death(f, &genome(f as u64), 3);
+            c.record_death(f, 0, &genome(f as u64), 3);
         }
-        let fits: Vec<f32> = c.hall_of_fame.iter().map(|(f, _)| *f).collect();
+        let fits: Vec<f32> = c.hall_of_fame.iter().map(|(f, _, _)| *f).collect();
         assert_eq!(fits, vec![9.0, 7.0, 5.0]);
     }
 
     #[test]
     fn hall_of_fame_ignores_a_worse_genome_when_full() {
         let mut c = ColonyState::new(0);
-        c.record_death(10.0, &genome(1), 1);
-        c.record_death(2.0, &genome(2), 1);
+        c.record_death(10.0, 0, &genome(1), 1);
+        c.record_death(2.0, 0, &genome(2), 1);
         assert_eq!(c.hall_of_fame.len(), 1);
         assert_eq!(c.hall_of_fame[0].0, 10.0);
     }
@@ -161,8 +174,8 @@ mod tests {
     #[test]
     fn record_death_increments_the_death_counter() {
         let mut c = ColonyState::new(0);
-        c.record_death(1.0, &genome(1), 5);
-        c.record_death(1.0, &genome(2), 5);
+        c.record_death(1.0, 0, &genome(1), 5);
+        c.record_death(1.0, 0, &genome(2), 5);
         assert_eq!(c.deaths, 2);
     }
 
@@ -240,7 +253,17 @@ mod tests {
     #[test]
     fn archive_parent_draws_from_the_hall_of_fame() {
         let mut c = ColonyState::new(0);
-        c.record_death(1.0, &genome(1), 5);
+        c.record_death(1.0, 0, &genome(1), 5);
         assert!(c.archive_parent(&mut Pcg32::new(8, 8)).is_some());
+    }
+
+    #[test]
+    fn the_archive_remembers_how_deep_a_lineage_was() {
+        // A floor-spawned descendant needs its parent's depth, or the colony's
+        // generation counter never advances.
+        let mut c = ColonyState::new(0);
+        c.record_death(5.0, 41, &genome(1), 5);
+        let (_, lineage) = c.archive_parent(&mut Pcg32::new(8, 8)).unwrap();
+        assert_eq!(lineage, 41);
     }
 }

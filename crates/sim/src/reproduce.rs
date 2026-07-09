@@ -35,11 +35,17 @@ pub fn reproduce(
                 .last_floor_spawn
                 .saturating_add(cfg.floor_respawn_interval);
         if below_floor && (interval_elapsed || colonies[ci].floor_spawns == 0) {
-            let genome = match colonies[ci].archive_parent(rng) {
-                Some(g) => g.mutated(cfg, rng),
-                None => Genome::random(rng),
+            // A floor-spawned ant is a descendant of its archived parent and
+            // inherits its lineage depth. Falling back on `next_lineage_hint`
+            // for every free ant — as an earlier version did — freezes the
+            // generation counter of any colony that lives on the floor, which
+            // over a long run is nearly all of them.
+            let (genome, parent_lineage) = match colonies[ci].archive_parent(rng) {
+                Some((g, l)) => (g.mutated(cfg, rng), l),
+                None => (Genome::random(rng), colonies[ci].next_lineage_hint),
             };
-            let lineage = colonies[ci].next_lineage_hint.saturating_add(1);
+            let lineage = parent_lineage.saturating_add(1);
+            colonies[ci].next_lineage_hint = colonies[ci].next_lineage_hint.max(lineage);
             spawn_into(
                 ants,
                 &colonies[ci],
@@ -270,7 +276,7 @@ mod tests {
         };
         let (mut ants, mut cols) = setup(&c, &[(0, 5.0)]);
         cols[0].store = 0.0;
-        cols[0].record_death(9.0, &Genome::random(&mut Pcg32::new(9, 9)), 5);
+        cols[0].record_death(9.0, 0, &Genome::random(&mut Pcg32::new(9, 9)), 5);
         let mut id = 1;
         reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(3, 3));
         assert_eq!(ants.population(0), 2, "one free ant, not a full top-up");
@@ -324,6 +330,40 @@ mod tests {
         reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(5, 5));
         assert_eq!(ants.len(), 2);
         assert_eq!(cols[0].floor_spawns, 0);
+    }
+
+    #[test]
+    fn a_floor_spawn_is_one_generation_deeper_than_its_archived_parent() {
+        // Previously a free ant took `next_lineage_hint + 1`, a global maximum
+        // unrelated to whichever genome the archive actually handed back. A
+        // colony living on the floor — over a long run, nearly all of them —
+        // therefore reported the same generation number forever.
+        let c = Config {
+            extinction_floor: 2,
+            ..cfg()
+        };
+        let (mut ants, mut cols) = setup(&c, &[]);
+        cols[0].record_death(9.0, 41, &Genome::random(&mut Pcg32::new(9, 9)), 5);
+        let mut id = 0;
+        reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(3, 3));
+
+        let free_ant = (0..ants.len()).find(|&i| ants.colony[i] == 0).unwrap();
+        assert_eq!(ants.lineage[free_ant], 42, "should descend from the archive");
+        assert_eq!(cols[0].next_lineage_hint, 42);
+    }
+
+    #[test]
+    fn an_empty_archive_falls_back_to_the_colonys_own_depth() {
+        let c = Config {
+            extinction_floor: 2,
+            ..cfg()
+        };
+        let (mut ants, mut cols) = setup(&c, &[]);
+        cols[0].next_lineage_hint = 7;
+        let mut id = 0;
+        reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(4, 4));
+        let free_ant = (0..ants.len()).find(|&i| ants.colony[i] == 0).unwrap();
+        assert_eq!(ants.lineage[free_ant], 8);
     }
 
     #[test]

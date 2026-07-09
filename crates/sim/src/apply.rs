@@ -228,6 +228,7 @@ pub fn sweep_deaths(ants: &mut Ants, ctx: &mut ApplyCtx) {
         let colony = &mut ctx.colonies[ants.colony[i] as usize];
         colony.record_death(
             ants.food_delivered[i],
+            ants.lineage[i],
             &ants.genome[i],
             ctx.cfg.hall_of_fame_size,
         );
