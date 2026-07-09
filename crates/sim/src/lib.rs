@@ -31,6 +31,7 @@ pub mod pheromone;
 pub mod reproduce;
 pub mod rng;
 pub mod sense;
+pub mod snapshot;
 pub mod spatial;
 pub mod stats;
 pub mod world;
