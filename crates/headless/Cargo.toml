@@ -1,0 +1,9 @@
+[package]
+name = "headless"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+sim = { path = "../sim" }
+clap.workspace = true
+bincode.workspace = true

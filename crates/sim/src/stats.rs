@@ -17,7 +17,12 @@ pub struct ColonyStats {
     pub floor_spawns: u64,
     pub mean_size: f32,
     pub mean_lineage: f32,
+    /// Lifetime food delivered by the ants alive *right now*. Falls when a
+    /// productive ant dies, so it is a poor progress signal on its own.
     pub food_delivered: f32,
+    /// Food delivered by every ant this colony has ever had. Monotonic. This is
+    /// the curve to watch for "is evolution working".
+    pub delivered_total: f32,
 }
 
 pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
@@ -45,6 +50,7 @@ pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
                 mean_size: if population == 0 { 0.0 } else { size_sum / n },
                 mean_lineage: if population == 0 { 0.0 } else { lineage_sum / n },
                 food_delivered: delivered,
+                delivered_total: c.delivered_total,
             }
         })
         .collect()
@@ -118,6 +124,18 @@ mod tests {
         let ants = ants_with(&[(0, 1.0, 0, 5.0), (0, 1.0, 0, 7.0)]);
         let cols: Vec<ColonyState> = (0..1).map(ColonyState::new).collect();
         assert_eq!(colony_stats(&ants, &cols)[0].food_delivered, 12.0);
+    }
+
+    #[test]
+    fn delivered_total_survives_the_death_of_the_ant_that_earned_it() {
+        // `food_delivered` counts the living; `delivered_total` counts history.
+        let mut ants = ants_with(&[(0, 1.0, 0, 40.0)]);
+        let mut cols: Vec<ColonyState> = (0..1).map(ColonyState::new).collect();
+        cols[0].delivered_total = 40.0;
+        ants.alive[0] = false;
+        let s = &colony_stats(&ants, &cols)[0];
+        assert_eq!(s.food_delivered, 0.0, "the earner is dead");
+        assert_eq!(s.delivered_total, 40.0, "the food still came home");
     }
 
     #[test]

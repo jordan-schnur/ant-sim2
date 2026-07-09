@@ -102,6 +102,7 @@ pub fn apply_nest(i: usize, ants: &mut Ants, ctx: &mut ApplyCtx) {
     let load = ants.carrying[i];
     if load > 0.0 {
         colony.store += load;
+        colony.delivered_total += load;
         ants.food_delivered[i] += load;
         ants.carrying[i] = 0.0;
     }
@@ -505,6 +506,17 @@ mod tests {
         let (ants, mut ctx) = f.split();
         apply_nest(0, ants, &mut ctx);
         assert_eq!(f.ants.food_delivered[0], 6.0);
+    }
+
+    #[test]
+    fn depositing_credits_the_colonys_lifetime_total() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let n = f.grid.idx(8, 8);
+        f.grid.nest[n] = 1;
+        f.ants.carrying[0] = 6.0;
+        let (ants, mut ctx) = f.split();
+        apply_nest(0, ants, &mut ctx);
+        assert_eq!(f.colonies[1].delivered_total, 6.0);
     }
 
     #[test]

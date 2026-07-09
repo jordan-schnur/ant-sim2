@@ -17,6 +17,13 @@ pub struct ColonyState {
     pub nest_center: (f32, f32),
     pub births: u64,
     pub deaths: u64,
+    /// Every unit of food ever carried home, across all ants living and dead.
+    ///
+    /// This — not the sum of living ants' `food_delivered` — is the evolution
+    /// signal. Summing the living undercounts every forager that has since died
+    /// of old age, so it tracks population as much as skill and can fall while
+    /// the colony is getting better.
+    pub delivered_total: f32,
     /// Ants conjured by the extinction floor, free of charge. Surfaced in
     /// `ColonyStats` because this is the one place the simulation cheats:
     /// a colony propped up by the floor is not a colony that is winning, and
@@ -38,6 +45,7 @@ impl ColonyState {
             nest_center: (0.0, 0.0),
             births: 0,
             deaths: 0,
+            delivered_total: 0.0,
             floor_spawns: 0,
             last_floor_spawn: 0,
             hall_of_fame: Vec::new(),
