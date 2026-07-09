@@ -1,5 +1,12 @@
 # First 500k-tick run — what the CSV actually shows
 
+> **Superseded in part, 2026-07-09.** The two colonies that delivered *exactly
+> zero* over 500,000 ticks were not unlucky — the hall of fame had a bug that
+> froze their gene pool solid. See [the postscript](#postscript-the-zeroes-were-a-bug)
+> at the bottom. Everything below is the original write-up of the pre-fix run and
+> the numbers in it no longer describe the simulation. The advice under
+> "What to try next" is still untested.
+
 Plan 1, Task 21, Step 7. Default `Config`, seed 1, 8 colonies × 40 founders,
 512×512, sampled every 5,000 ticks.
 
@@ -122,3 +129,66 @@ search and the economy, not the simulation:
   uses.
 - `tests/known_good.rs` — a 300-generation hill-climb lifts mean delivery from
   313 to 1,899.
+
+## Postscript: the zeroes were a bug
+
+The cross-check above was right that the world is fine, and wrong to conclude
+the remaining fault was the *search*. It was the *archive*.
+
+`record_death` rejected a tie:
+
+```rust
+if self.hall_of_fame.last().map_or(false, |(f, _, _)| *f >= fitness) {
+    return;
+}
+```
+
+A colony that has never delivered food scores every corpse 0.0. Once ten 0.0
+entries were in, every later 0.0 was rejected by the 0.0 already sitting there,
+and **the archive froze at that colony's first ten corpses and never changed
+again.** Measured on seed 1: colonies 1, 3 and 5 took 138 deaths across 20,000
+ticks without the archive moving once.
+
+Because the extinction floor breeds from the archive, and the floor produces
+97.7% of all ants, those colonies spent half a million ticks taking a single
+mutation step away from ten fixed genomes and throwing the result away every
+time. The search had no memory. It was not hill-climbing; it was resampling.
+That is why colonies 1 and 5 delivered exactly zero, and why their generation
+counter sat at 3–4 forever.
+
+Two changes, both using only food delivered — the selection signal is unchanged:
+
+1. **A tie displaces the weakest, and the newcomer is inserted in front of
+   everyone it ties with.** A flat archive becomes a sliding window of the most
+   recent corpses, so neutral mutations accumulate down a lineage and the search
+   can cross the plateau. The first fix alone is not enough: with the newcomer
+   inserted *behind* its ties it lands back in the slot `pop()` just freed, so
+   nine of ten entries stay frozen. Both halves are needed.
+2. **`archive_parent` draws roulette-weighted by fitness**, as `select_parent`
+   already did for the living. Uniform sampling threw away the ordering the
+   archive is maintained in — colony 0 held `[8, 8, 5.8, 4, 2, 2, 2, 0, 0, 0]`
+   and bred from a genome known to deliver nothing 30% of the time.
+
+Effect at 40,000 ticks on seed 1: total delivered **867 → 1,957**. Colony 2's
+best archived ant went 17.6 → 178, its floor spawns halved (it now feeds itself),
+and total population held at 37 instead of collapsing to 17.
+
+### What this does not fix
+
+Paid births still never happen after the opening spree: `births` freezes at 12
+per colony around tick 1,500 and the stores sit at zero for the rest of the run.
+Delivery is still one to two orders of magnitude below what the colony's ants
+draw back out as `refuel_rate`, so nothing accumulates to `birth_cost`.
+
+Before retuning that, note the trap: **the seed-to-seed variance is larger than
+any effect you are likely to measure.** Over 40,000 ticks, total delivered was 98
+(seed 3), 1,957 (seed 1) and 4,688 (seed 2). A three-seed A/B of "no paid births
+at all" against the default came out 2281-vs-1957 for seed 1, 3096-vs-4688 for
+seed 2, and 12-vs-98 for seed 3 — i.e. inconclusive in both directions. Any
+economy retune needs a proper multi-seed sweep, not a single run.
+
+Note also that `Config`'s `initial_food_store` comment claims it is "a fuel
+reserve, not a birth windfall", and `reproduce` spends it to zero on births
+within ~1,500 ticks, drawn from parents nobody has yet had reason to prefer. The
+code and the comment disagree. Which one is wrong is a design question, not a
+bug report.

@@ -63,19 +63,37 @@ impl ColonyState {
         self.deaths += 1;
         if self.hall_of_fame.len() >= cap {
             // Sorted descending, so the last entry is the weakest.
+            //
+            // A *tie* displaces it. Strict `>=` here would freeze the archive of
+            // any colony that has never delivered food: every corpse scores 0.0,
+            // every 0.0 is rejected by the 0.0 already sitting there, and the
+            // colony breeds forever from the ten genomes that happened to die
+            // first. Since the extinction floor draws from this archive, that
+            // turns the only reproduction path most colonies have into a
+            // memoryless resample. Accepting ties makes a flat archive a
+            // drifting population instead, so neutral mutations accumulate and
+            // the search can cross the plateau to its first delivered crumb.
             if self
                 .hall_of_fame
                 .last()
-                .map_or(false, |(f, _, _)| *f >= fitness)
+                .map_or(false, |(f, _, _)| *f > fitness)
             {
                 return;
             }
             self.hall_of_fame.pop();
         }
+        // `<=`, not `<`: the newcomer goes in *front* of everyone it ties with.
+        // With `<` an all-zero archive pops its tail and pushes straight back
+        // into the slot it just freed, so nine of ten entries stay frozen at the
+        // colony's first nine corpses and only one slot ever drifts. Tying to
+        // the front instead makes the tie group a sliding window of the most
+        // recent corpses, which is what lets neutral mutations accumulate down a
+        // lineage. Elites are untouched: a genome is only displaced by one that
+        // delivered at least as much.
         let pos = self
             .hall_of_fame
             .iter()
-            .position(|(f, _, _)| *f < fitness)
+            .position(|(f, _, _)| *f <= fitness)
             .unwrap_or(self.hall_of_fame.len());
         self.hall_of_fame
             .insert(pos, (fitness, lineage, genome.clone()));
@@ -111,12 +129,32 @@ impl ColonyState {
     }
 
     /// A genome from the archive and the lineage depth it was at when it died.
+    ///
+    /// Roulette-weighted by food delivered, exactly as `select_parent` weights
+    /// the living. A uniform draw would discard the ordering the archive is
+    /// maintained in: a colony holding `[8, 8, 5.8, 4, 2, 2, 2, 0, 0, 0]` would
+    /// breed from a genome known to deliver nothing 30% of the time. `PARENT_EPS`
+    /// keeps an all-zero archive — a colony that has yet to deliver anything —
+    /// samplable, and keeps its drifting tail in play as explorers.
     pub fn archive_parent(&self, rng: &mut Pcg32) -> Option<(&Genome, u32)> {
         if self.hall_of_fame.is_empty() {
             return None;
         }
-        let k = rng.next_below(self.hall_of_fame.len() as u32) as usize;
-        let (_, lineage, genome) = &self.hall_of_fame[k];
+        let total: f32 = self
+            .hall_of_fame
+            .iter()
+            .map(|(f, _, _)| f + PARENT_EPS)
+            .sum();
+        let mut target = rng.next_f32() * total;
+        for (fitness, lineage, genome) in &self.hall_of_fame {
+            target -= fitness + PARENT_EPS;
+            if target <= 0.0 {
+                return Some((genome, *lineage));
+            }
+        }
+        // Float rounding can leave `target` a hair above zero; fall back to the
+        // weakest rather than returning None on a non-empty archive.
+        let (_, lineage, genome) = self.hall_of_fame.last().unwrap();
         Some((genome, *lineage))
     }
 }
@@ -169,6 +207,47 @@ mod tests {
         c.record_death(2.0, 0, &genome(2), 1);
         assert_eq!(c.hall_of_fame.len(), 1);
         assert_eq!(c.hall_of_fame[0].0, 10.0);
+    }
+
+    /// The one that mattered. A colony that has never delivered food scores
+    /// every corpse 0.0. If a tie cannot displace the incumbent, the archive
+    /// freezes at that colony's first `cap` corpses and never changes again —
+    /// and since the extinction floor breeds from the archive, the colony
+    /// spends the rest of the run taking one mutation step away from ten fixed
+    /// genomes and discarding the result. Measured: colonies 1, 3 and 5 of
+    /// seed 1 took 138 deaths across 20,000 ticks without the archive moving
+    /// once, and delivered exactly zero over 500,000.
+    ///
+    /// Asserts the archive holds *exactly* the last `cap` corpses, newest
+    /// first. A weaker "did anything change?" check passes even when only the
+    /// tail slot churns and the other nine stay frozen — which is the bug this
+    /// began as, one layer down.
+    #[test]
+    fn a_zero_fitness_archive_becomes_a_sliding_window_of_recent_corpses() {
+        let mut c = ColonyState::new(0);
+        for i in 0..8u64 {
+            c.record_death(0.0, 0, &genome(i), 3);
+        }
+        let held: Vec<f32> = c.hall_of_fame.iter().map(|(_, _, g)| g.params[0]).collect();
+        let want: Vec<f32> = [7u64, 6, 5].iter().map(|i| genome(*i).params[0]).collect();
+
+        assert_eq!(c.hall_of_fame.len(), 3, "the cap still holds");
+        assert_eq!(held, want, "every slot must drift, not just the tail");
+    }
+
+    /// Drift must not cost a colony its elites: neutral churn belongs in the
+    /// tail, not at the top.
+    #[test]
+    fn drift_never_displaces_a_genome_that_actually_delivered() {
+        let mut c = ColonyState::new(0);
+        c.record_death(12.0, 0, &genome(1), 3);
+        for i in 0..20 {
+            c.record_death(0.0, 0, &genome(i + 10), 3);
+        }
+        assert_eq!(
+            c.hall_of_fame[0].0, 12.0,
+            "the forager was evicted by drift"
+        );
     }
 
     #[test]
@@ -255,6 +334,48 @@ mod tests {
         let mut c = ColonyState::new(0);
         c.record_death(1.0, 0, &genome(1), 5);
         assert!(c.archive_parent(&mut Pcg32::new(8, 8)).is_some());
+    }
+
+    /// The archive is sorted by food delivered and the floor breeds from it, so
+    /// a uniform draw throws that ordering away. Colony 0 of seed 1 held
+    /// `[8, 8, 5.8, 4, 2, 2, 2, 0, 0, 0]`: a 30% chance of breeding from a
+    /// genome known to deliver nothing.
+    #[test]
+    fn archive_parent_favours_the_fittest_genome() {
+        let mut c = ColonyState::new(0);
+        c.record_death(0.0, 0, &genome(1), 5);
+        c.record_death(1000.0, 0, &genome(2), 5);
+        let target = c
+            .hall_of_fame
+            .iter()
+            .position(|(f, _, _)| *f == 1000.0)
+            .unwrap();
+        let want = c.hall_of_fame[target].2.params[0];
+
+        let mut r = Pcg32::new(11, 11);
+        let wins = (0..1000)
+            .filter(|_| c.archive_parent(&mut r).unwrap().0.params[0] == want)
+            .count();
+        assert!(wins > 900, "the productive genome won only {wins}/1000");
+    }
+
+    /// An all-zero archive still has to hand something back, or a colony that
+    /// has never delivered can never be re-seeded at all.
+    #[test]
+    fn archive_parent_still_draws_from_an_all_zero_archive() {
+        let mut c = ColonyState::new(0);
+        for i in 0..4 {
+            c.record_death(0.0, 0, &genome(i), 4);
+        }
+        let mut r = Pcg32::new(12, 12);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            seen.insert(c.archive_parent(&mut r).unwrap().0.params[0].to_bits());
+        }
+        assert!(
+            seen.len() > 1,
+            "a flat archive must still be sampled broadly"
+        );
     }
 
     #[test]

@@ -66,12 +66,19 @@ That failure is the point.
 
 ## Does it evolve?
 
-Yes, slowly. Over 500,000 ticks the delivery rate rises about 8×, six of eight
-colonies discover foraging, and two never do. But **97.7% of all ants are born
-from the extinction floor rather than paid for out of a colony's food store** —
-the safety net, not the economy, is doing the reproducing. Read
+Yes. It evolved considerably worse than it should have until recently: a colony
+that had never delivered any food scored every corpse 0.0, and the hall of fame
+rejected a tie — so its gene pool froze at its first ten corpses and the
+extinction floor bred from those same ten genomes forever. Two of eight colonies
+delivered *exactly zero* across half a million ticks because of it. Fixing the
+archive doubled total delivery.
+
+What remains is real and unfixed: **most ants are still born from the extinction
+floor rather than paid for out of a colony's food store** — the safety net, not
+the economy, is doing the reproducing. Read
 [`docs/superpowers/notes/2026-07-09-first-500k-tick-run.md`](docs/superpowers/notes/2026-07-09-first-500k-tick-run.md)
-before tuning anything.
+before tuning anything. In particular, note that seed-to-seed variance in total
+food delivered spans two orders of magnitude, so a single run tells you nothing.
 
 A short run is actively misleading: at tick 5,000 every colony looks dead. The
 curve does not bend until roughly tick 100,000.
