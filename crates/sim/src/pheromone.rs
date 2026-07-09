@@ -68,8 +68,10 @@ impl Pheromones {
     /// the neighbour average; out-of-bounds neighbours read as the cell itself,
     /// so nothing leaks off the border.
     ///
-    /// The scent layer diffuses only its magnitude; ownership is not blended,
-    /// because a cell has exactly one owner by construction.
+    /// The scent layer carries an owner, so it cannot use the same blend: scent
+    /// must spread *with* its ownership, or a nest's beacon diffuses into cells
+    /// that hold a magnitude nobody owns, which `scent_for` reports as nothing.
+    /// See `diffuse_scent`.
     pub fn step(&mut self, cfg: &Config) {
         diffuse_decay(
             &mut self.food,
@@ -85,17 +87,108 @@ impl Pheromones {
             cfg.alarm_diffusion,
             cfg.alarm_evaporation,
         );
-        diffuse_decay(
+        diffuse_scent(
             &mut self.scent,
+            &mut self.owner,
             self.width,
             self.height,
             cfg.scent_diffusion,
             cfg.scent_evaporation,
         );
-        for i in 0..self.scent.len() {
-            if self.scent[i] < 1e-6 {
-                self.scent[i] = 0.0;
-                self.owner[i] = NO_OWNER;
+    }
+}
+
+/// Fold one owner's contribution into a small per-owner tally. At most five
+/// distinct owners can reach a cell in one step (itself plus four neighbours).
+#[inline]
+fn accumulate(ids: &mut [u8; 5], amts: &mut [f32; 5], n: &mut usize, owner: u8, amount: f32) {
+    if owner == NO_OWNER || amount <= 0.0 {
+        return;
+    }
+    for k in 0..*n {
+        if ids[k] == owner {
+            amts[k] += amount;
+            return;
+        }
+    }
+    ids[*n] = owner;
+    amts[*n] = amount;
+    *n += 1;
+}
+
+/// Diffusion for the contested colony-scent field.
+///
+/// Each cell keeps `1 - diffusion` of its own scent and receives `diffusion/4`
+/// from each neighbour, but every contribution arrives *tagged with its owner*.
+/// The strongest owner takes the cell and the rest erode it, exactly as
+/// `deposit_scent` does — so territory contests resolve identically whether the
+/// scent arrived by an ant's feet or by diffusion.
+///
+/// When every contribution shares one owner this reduces to the plain 4-point
+/// blend, which is the common case in a colony's own territory.
+///
+/// Deterministic: neighbours are visited in a fixed order and ties go to the
+/// lower colony id.
+fn diffuse_scent(
+    scent: &mut [f32],
+    owner: &mut [u8],
+    w: u16,
+    h: u16,
+    diffusion: f32,
+    evaporation: f32,
+) {
+    let w = w as usize;
+    let h = h as usize;
+    let src_v = scent.to_vec();
+    let src_o = owner.to_vec();
+
+    let keep = 1.0 - diffusion;
+    let share = diffusion * 0.25;
+
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            let (vc, oc) = (src_v[i], src_o[i]);
+
+            let mut ids = [NO_OWNER; 5];
+            let mut amts = [0.0f32; 5];
+            let mut n = 0usize;
+            accumulate(&mut ids, &mut amts, &mut n, oc, vc * keep);
+
+            // Out-of-bounds neighbours read as the cell itself, so nothing
+            // leaks off the border.
+            let neighbours = [
+                if x > 0 { i - 1 } else { i },
+                if x + 1 < w { i + 1 } else { i },
+                if y > 0 { i - w } else { i },
+                if y + 1 < h { i + w } else { i },
+            ];
+            for j in neighbours {
+                accumulate(&mut ids, &mut amts, &mut n, src_o[j], src_v[j] * share);
+            }
+
+            if n == 0 {
+                scent[i] = 0.0;
+                owner[i] = NO_OWNER;
+                continue;
+            }
+
+            let mut best = 0usize;
+            for k in 1..n {
+                if amts[k] > amts[best] || (amts[k] == amts[best] && ids[k] < ids[best]) {
+                    best = k;
+                }
+            }
+            let total: f32 = amts[..n].iter().sum();
+            // The winner's margin over everyone else combined.
+            let net = (2.0 * amts[best] - total) * evaporation;
+
+            if net < 1e-6 {
+                scent[i] = 0.0;
+                owner[i] = NO_OWNER;
+            } else {
+                scent[i] = net;
+                owner[i] = ids[best];
             }
         }
     }
@@ -216,6 +309,70 @@ mod tests {
         p.step(&cfg);
         let after: f32 = p.food.iter().sum();
         assert!((before - after).abs() < 1e-3, "{before} vs {after}");
+    }
+
+    #[test]
+    fn diffused_scent_carries_its_ownership_with_it() {
+        // Without this, a nest's beacon spreads as a magnitude that `scent_for`
+        // reports as zero to everyone, and homing becomes impossible.
+        let cfg = small();
+        let mut p = Pheromones::new(&cfg);
+        let center = 8 * 4 + 4;
+        p.deposit_scent(center, 1000.0, 2);
+        p.step(&cfg);
+        let (own, foreign) = p.scent_for(center + 1, 2);
+        assert!(own > 0.0, "the neighbour cell holds no readable own-scent");
+        assert_eq!(foreign, 0.0);
+        assert_eq!(p.owner[center + 1], 2);
+    }
+
+    #[test]
+    fn a_lone_colonys_scent_diffuses_exactly_like_a_plain_field() {
+        // With one owner everywhere, contested diffusion must reduce to the
+        // ordinary 4-point blend.
+        let cfg = small();
+        let mut p = Pheromones::new(&cfg);
+        let mut plain = vec![0.0f32; cfg.cell_count()];
+        let center = 8 * 4 + 4;
+        p.deposit_scent(center, 1000.0, 1);
+        plain[center] = 1000.0;
+
+        p.step(&cfg);
+        diffuse_decay(
+            &mut plain,
+            cfg.width,
+            cfg.height,
+            cfg.scent_diffusion,
+            cfg.scent_evaporation,
+        );
+        for i in 0..plain.len() {
+            if plain[i] >= 1e-6 {
+                assert!((p.scent[i] - plain[i]).abs() < 1e-3, "cell {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn two_colonies_diffusing_into_one_cell_leave_only_the_stronger() {
+        let cfg = small();
+        let mut p = Pheromones::new(&cfg);
+        let mid = 8 * 4 + 4;
+        p.deposit_scent(mid - 1, 1000.0, 1);
+        p.deposit_scent(mid + 1, 10.0, 3);
+        p.step(&cfg);
+        assert_eq!(p.owner[mid], 1, "the stronger colony should hold the ground");
+    }
+
+    #[test]
+    fn evenly_contested_ground_belongs_to_nobody() {
+        let cfg = small();
+        let mut p = Pheromones::new(&cfg);
+        let mid = 8 * 4 + 4;
+        p.deposit_scent(mid - 1, 500.0, 1);
+        p.deposit_scent(mid + 1, 500.0, 2);
+        p.step(&cfg);
+        assert_eq!(p.scent[mid], 0.0);
+        assert_eq!(p.owner[mid], NO_OWNER);
     }
 
     #[test]
