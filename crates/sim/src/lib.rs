@@ -24,6 +24,7 @@ pub mod brain;
 pub mod config;
 pub mod genome;
 pub mod grid;
+pub mod intent;
 pub mod pheromone;
 pub mod rng;
 pub mod sense;
