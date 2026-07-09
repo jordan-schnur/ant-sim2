@@ -74,6 +74,9 @@ export class Net {
       case "phero":
         this.store.applyPhero(f);
         break;
+      case "terrain":
+        this.store.applyTerrain(f);
+        break;
       case "stats":
         this.store.applyStats(f.tick, f.colonies);
         break;

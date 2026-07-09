@@ -2,6 +2,7 @@
   "hello": { "width": 32, "height": 32, "numColonies": 2, "pheroResLog2": 8, "tick": 50 },
   "ants": { "tick": 50, "count": 36, "first": { "x": 2240, "y": 544, "colony": 0, "size": 106, "flags": 3 } },
   "phero": { "w": 16, "h": 16, "factor": 2, "firstTexel": [0, 0, 0, 255], "brightestScent": { "texel": 141, "value": 162, "owner": 0 } },
+  "terrain": { "w": 16, "h": 16, "factor": 2, "stoneTexels": 37, "foodTexels": 77, "nestTexels": 8, "maxFood": 255, "maxStone": 255 },
   "stats": { "count": 2, "first": { "id": 0, "population": 18, "store": 123.5, "births": 11, "deaths": 7, "floorSpawns": 3, "meanSize": 0.66022176, "meanLineage": 2.0555556, "deliveredTotal": 45.25 } },
   "detail": { "id": 0, "colony": 0, "alive": true, "x": 17.5, "y": 4.25, "age": 37, "lineage": 5, "trait0": 0.49187687, "trait7": 8961.15, "input0": 1, "input43": -0.60869735, "h1_0": -0.74264956, "h1_15": 0.21019119, "h2_0": -0.93843305, "h2_15": 0.66819286, "output0": -0.488154, "output7": -0.55956924 },
   "genome": { "id": 42, "nParams": 1128, "param0": 0.10043309 },

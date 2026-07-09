@@ -107,6 +107,10 @@ fn emit_protocol_fixtures() {
     write("phero.bin", &b);
     assert_eq!(b.len(), 14 + 16 * 16 * 4);
 
+    encode_terrain(&mut b, &w, 2);
+    write("terrain.bin", &b);
+    assert_eq!(b.len(), 14 + 16 * 16 * 4);
+
     let stats = w.stats();
     encode_stats(&mut b, w.tick_count, &stats);
     write("stats.bin", &b);
@@ -152,6 +156,7 @@ fn emit_protocol_fixtures() {
             "  \"hello\": {{ \"width\": {}, \"height\": {}, \"numColonies\": {}, \"pheroResLog2\": 8, \"tick\": {} }},\n",
             "  \"ants\": {{ \"tick\": {}, \"count\": {}, \"first\": {{ \"x\": {}, \"y\": {}, \"colony\": {}, \"size\": {}, \"flags\": {} }} }},\n",
             "  \"phero\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"firstTexel\": [{}, {}, {}, {}], \"brightestScent\": {{ \"texel\": {}, \"value\": {}, \"owner\": {} }} }},\n",
+            "  \"terrain\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"stoneTexels\": {}, \"foodTexels\": {}, \"nestTexels\": {}, \"maxFood\": {}, \"maxStone\": {} }},\n",
             "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"floorSpawns\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
             "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
             "  \"genome\": {{ \"id\": 42, \"nParams\": {}, \"param0\": {} }},\n",
@@ -176,6 +181,11 @@ fn emit_protocol_fixtures() {
         brightest_scent_texel(&w).0,
         brightest_scent_texel(&w).1,
         brightest_scent_texel(&w).2,
+        terrain_summary(&w).0,
+        terrain_summary(&w).1,
+        terrain_summary(&w).2,
+        terrain_summary(&w).3,
+        terrain_summary(&w).4,
         stats.len(),
         stats[0].id,
         stats[0].population,
@@ -249,6 +259,13 @@ fn emit_protocol_fixtures() {
     ] {
         assert!(v != 0, "stats fixture field `{name}` is zero");
     }
+    // The terrain fixture must show a map, not a void.
+    let (stone, food, nest, max_food, max_stone) = terrain_summary(&w);
+    assert!(stone > 0, "terrain fixture has no stone");
+    assert!(food > 0, "terrain fixture has no food");
+    assert!(nest > 0, "terrain fixture has no nest tiles");
+    assert!(max_food > 0 && max_stone > 0);
+
     assert_ne!(w.ants.lineage[0], 0, "detail fixture lineage is zero");
     assert_ne!(w.ants.age[0], 0, "detail fixture age is zero");
     assert_ne!(traits[0], 0.0, "detail fixture trait0 is zero");
@@ -257,8 +274,14 @@ fn emit_protocol_fixtures() {
     // reads `h2` at `h1`'s offset finds equally plausible tanh values and the
     // cross-language test never notices.
     assert_ne!(act.h1[0], act.h2[0], "h1 and h2 are indistinguishable");
-    assert_ne!(act.h1[15], act.h2[15], "h1 and h2 tails are indistinguishable");
-    assert_ne!(act.outputs[0], act.outputs[7], "output head equals its tail");
+    assert_ne!(
+        act.h1[15], act.h2[15],
+        "h1 and h2 tails are indistinguishable"
+    );
+    assert_ne!(
+        act.outputs[0], act.outputs[7],
+        "output head equals its tail"
+    );
 
     // Distinct, so a decoder that swaps two fields cannot coincidentally agree.
     let scalars = [
@@ -272,9 +295,28 @@ fn emit_protocol_fixtures() {
     ];
     for i in 0..scalars.len() {
         for j in (i + 1)..scalars.len() {
-            assert_ne!(scalars[i], scalars[j], "fixture scalars {i} and {j} collide");
+            assert_ne!(
+                scalars[i], scalars[j],
+                "fixture scalars {i} and {j} collide"
+            );
         }
     }
+}
+
+/// (stone texels, food texels, nest texels, max food byte, max stone byte).
+/// The TypeScript side recomputes these from the same bytes; if either half
+/// reads the channels in a different order, the counts disagree.
+fn terrain_summary(w: &World) -> (usize, usize, usize, u8, u8) {
+    let mut b = Vec::new();
+    encode_terrain(&mut b, w, 2);
+    let t = &b[14..];
+    let n = t.len() / 4;
+    let stone = (0..n).filter(|i| t[4 * i + 1] > 0).count();
+    let food = (0..n).filter(|i| t[4 * i] > 0).count();
+    let nest = (0..n).filter(|i| t[4 * i + 2] != 255).count();
+    let max_food = (0..n).map(|i| t[4 * i]).max().unwrap();
+    let max_stone = (0..n).map(|i| t[4 * i + 1]).max().unwrap();
+    (stone, food, nest, max_food, max_stone)
 }
 
 fn phero_texel(w: &World, k: usize) -> u8 {

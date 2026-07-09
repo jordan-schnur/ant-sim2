@@ -28,6 +28,10 @@ use tokio::sync::watch;
 const ANTS_PERIOD: Duration = Duration::from_millis(50); // 20 fps
 const PHERO_PERIOD: Duration = Duration::from_millis(100); // 10 fps
 const STATS_PERIOD: Duration = Duration::from_millis(250); // 4 fps
+/// Terrain changes slowly — food regrows at 0.002/tick — and a harvested cell
+/// is still visibly gone within a quarter second. No reason to pay a second
+/// full-resolution texture at the pheromone cadence.
+const TERRAIN_PERIOD: Duration = Duration::from_millis(250); // 4 fps
 
 /// When there is nothing to tick and nothing to publish, yield rather than
 /// spinning a core at 100% while paused.
@@ -55,6 +59,7 @@ pub struct Handles {
     pub hello: watch::Receiver<Frame>,
     pub ants: watch::Receiver<Frame>,
     pub phero: watch::Receiver<Frame>,
+    pub terrain: watch::Receiver<Frame>,
     pub stats: watch::Receiver<Frame>,
     pub detail: watch::Receiver<Frame>,
     pub genome: watch::Receiver<Frame>,
@@ -65,6 +70,7 @@ struct Publishers {
     hello: watch::Sender<Frame>,
     ants: watch::Sender<Frame>,
     phero: watch::Sender<Frame>,
+    terrain: watch::Sender<Frame>,
     stats: watch::Sender<Frame>,
     detail: watch::Sender<Frame>,
     genome: watch::Sender<Frame>,
@@ -99,6 +105,8 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
     let (ants_tx, ants) = watch::channel(frame(|b| protocol::encode_ants(b, &world)));
     let (phero_tx, phero) =
         watch::channel(frame(|b| protocol::encode_phero(b, &world, phero_factor)));
+    let (terrain_tx, terrain) =
+        watch::channel(frame(|b| protocol::encode_terrain(b, &world, phero_factor)));
     let (stats_tx, stats) = watch::channel(frame(|b| {
         protocol::encode_stats(b, world.tick_count, &world.stats())
     }));
@@ -109,6 +117,7 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
         hello: hello_tx,
         ants: ants_tx,
         phero: phero_tx,
+        terrain: terrain_tx,
         stats: stats_tx,
         detail: detail_tx,
         genome: genome_tx,
@@ -134,6 +143,7 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
         hello,
         ants,
         phero,
+        terrain,
         stats,
         detail,
         genome,
@@ -166,6 +176,7 @@ fn run(mut st: State, mut rx: UnboundedReceiver<Command>, pubs: Publishers) {
 
     let mut last = Instant::now();
     let (mut t_ants, mut t_phero, mut t_stats) = (Instant::now(), Instant::now(), Instant::now());
+    let mut t_terrain = Instant::now();
 
     loop {
         // --- commands ---
@@ -206,6 +217,12 @@ fn run(mut st: State, mut rx: UnboundedReceiver<Command>, pubs: Publishers) {
             t_phero = now;
             protocol::encode_phero(&mut buf, &st.world, st.phero_factor);
             let _ = pubs.phero.send(Arc::new(buf.clone()));
+            published = true;
+        }
+        if now.duration_since(t_terrain) >= TERRAIN_PERIOD {
+            t_terrain = now;
+            protocol::encode_terrain(&mut buf, &st.world, st.phero_factor);
+            let _ = pubs.terrain.send(Arc::new(buf.clone()));
             published = true;
         }
         if now.duration_since(t_stats) >= STATS_PERIOD {
@@ -402,6 +419,7 @@ mod tests {
             hello: watch::channel(empty()).0,
             ants: watch::channel(empty()).0,
             phero: watch::channel(empty()).0,
+            terrain: watch::channel(empty()).0,
             stats: watch::channel(empty()).0,
             detail: watch::channel(empty()).0,
             genome: watch::channel(empty()).0,

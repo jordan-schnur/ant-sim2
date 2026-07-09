@@ -19,6 +19,7 @@ export const TAG_STATS = 0x04;
 export const TAG_ANT_DETAIL = 0x05;
 export const TAG_ANT_GENOME = 0x06;
 export const TAG_CONFIG = 0x07;
+export const TAG_TERRAIN = 0x08;
 
 export const CMD_SET_PAUSED = 0x01;
 export const CMD_SET_SPEED = 0x02;
@@ -50,6 +51,8 @@ export const POS_SCALE = 128;
 export const MAX_ENCODABLE_SIZE = 3.0;
 /** Alpha value meaning "no colony owns this cell's scent". */
 export const NO_OWNER = 255;
+/** Blue value in the terrain texture meaning "not a nest tile". */
+export const NO_NEST = 255;
 
 /** Tunable Config fields, in field-id order. Mirrors `CONFIG_FIELDS` in Rust. */
 export const CONFIG_FIELDS = [
@@ -109,6 +112,21 @@ export interface Phero {
   rgba: Uint8Array;
 }
 
+/**
+ * The map: stone, standing food, nest tiles. Without this the client draws an
+ * empty void with pheromone smears on it -- the pheromone frame carries trails,
+ * not the food they lead to, and knows nothing about the rock.
+ */
+export interface Terrain {
+  kind: "terrain";
+  tick: number;
+  w: number;
+  h: number;
+  factor: number;
+  /** RGBA8. R food (normalised), G stone coverage, B nest colony (255 none). */
+  rgba: Uint8Array;
+}
+
 export interface ColonyStat {
   id: number;
   population: number;
@@ -162,7 +180,15 @@ export interface ConfigFrame {
   values: Map<number, number>;
 }
 
-export type Frame = Hello | Ants | Phero | Stats | AntDetail | AntGenome | ConfigFrame;
+export type Frame =
+  | Hello
+  | Ants
+  | Phero
+  | Terrain
+  | Stats
+  | AntDetail
+  | AntGenome
+  | ConfigFrame;
 
 /**
  * `id` and `tick` are u64 on the wire. JS numbers hold integers exactly to
@@ -204,6 +230,19 @@ export function decode(buf: ArrayBuffer): Frame | null {
       const h = v.getUint16(11, true);
       return {
         kind: "phero",
+        tick: u64(v, 1),
+        w,
+        h,
+        factor: v.getUint8(13),
+        rgba: new Uint8Array(buf, 14, w * h * 4),
+      };
+    }
+
+    case TAG_TERRAIN: {
+      const w = v.getUint16(9, true);
+      const h = v.getUint16(11, true);
+      return {
+        kind: "terrain",
         tick: u64(v, 1),
         w,
         h,

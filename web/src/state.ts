@@ -8,7 +8,16 @@
  * operator is staring at a number and guessing.
  */
 
-import type { AntGenome, Ants, ColonyStat, ConfigFrame, Hello, Phero, AntDetail } from "./protocol.js";
+import type {
+  AntDetail,
+  AntGenome,
+  Ants,
+  ColonyStat,
+  ConfigFrame,
+  Hello,
+  Phero,
+  Terrain,
+} from "./protocol.js";
 
 /** ~2.5 minutes of stats at 4 fps. Enough to see a trend, cheap to redraw. */
 export const HISTORY_LEN = 600;
@@ -27,6 +36,7 @@ export interface State {
   hello: Hello | null;
   ants: Ants | null;
   phero: Phero | null;
+  terrain: Terrain | null;
   stats: ColonyStat[];
   tick: number;
   detail: AntDetail | null;
@@ -50,6 +60,7 @@ export class Store {
     hello: null,
     ants: null,
     phero: null,
+    terrain: null,
     stats: [],
     tick: 0,
     detail: null,
@@ -96,6 +107,10 @@ export class Store {
 
   applyPhero(p: Phero): void {
     this.state.phero = p;
+  }
+
+  applyTerrain(t: Terrain): void {
+    this.state.terrain = t;
   }
 
   applyStats(tick: number, colonies: ColonyStat[]): void {

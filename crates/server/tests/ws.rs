@@ -78,12 +78,19 @@ async fn the_connect_burst_carries_config_ants_phero_and_stats() {
     let mut s = connect(&url).await;
 
     let mut tags = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..6 {
         tags.push(next_binary(&mut s).await[0]);
     }
     assert_eq!(
         tags,
-        vec![TAG_HELLO, TAG_CONFIG, TAG_ANTS, TAG_PHERO, TAG_STATS],
+        vec![
+            TAG_HELLO,
+            TAG_CONFIG,
+            TAG_TERRAIN,
+            TAG_ANTS,
+            TAG_PHERO,
+            TAG_STATS
+        ],
         "a client must be able to draw a full picture before the first tick"
     );
 }

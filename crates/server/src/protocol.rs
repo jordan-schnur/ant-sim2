@@ -24,6 +24,7 @@ pub const TAG_STATS: u8 = 0x04;
 pub const TAG_ANT_DETAIL: u8 = 0x05;
 pub const TAG_ANT_GENOME: u8 = 0x06;
 pub const TAG_CONFIG: u8 = 0x07;
+pub const TAG_TERRAIN: u8 = 0x08;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 46;
@@ -294,6 +295,60 @@ pub fn encode_phero(out: &mut Vec<u8>, w: &World, factor: u8) {
     }
 }
 
+/// The map itself: stone, standing food, and nest tiles.
+///
+/// Without this the client renders an empty void with pheromone smears on it —
+/// the pheromone frame carries *trails*, not the food they lead to, and knows
+/// nothing about the rock the ants walk around.
+///
+/// R = standing food, mean over the block and normalised by `food_patch_max`.
+/// G = stone coverage fraction. Mean rather than max, unlike the pheromone
+///     layer: a max would paint a whole super-cell solid for one stone corner
+///     and draw walls that are not there. Trails need over-showing; terrain
+///     needs honesty.
+/// B = owning colony of a nest tile in the block (255 = no nest).
+/// A = 255, unused. Kept so the texture is a plain RGBA8 upload.
+pub fn encode_terrain(out: &mut Vec<u8>, w: &World, factor: u8) {
+    let f = factor.max(1) as usize;
+    let sw = w.cfg.width as usize / f;
+    let sh = w.cfg.height as usize / f;
+
+    out.clear();
+    out.reserve(14 + sw * sh * 4);
+    put_u8(out, TAG_TERRAIN);
+    put_u64(out, w.tick_count);
+    put_u16(out, sw as u16);
+    put_u16(out, sh as u16);
+    put_u8(out, f as u8);
+
+    let width = w.cfg.width as usize;
+    let per_block = (f * f) as f32;
+    let food_max = w.cfg.food_patch_max.max(1e-6);
+
+    for sy in 0..sh {
+        for sx in 0..sw {
+            let (mut food, mut stone) = (0.0f32, 0.0f32);
+            let mut nest = sim::grid::NO_NEST;
+            for dy in 0..f {
+                for dx in 0..f {
+                    let i = (sy * f + dy) * width + (sx * f + dx);
+                    food += w.grid.food[i];
+                    if w.grid.stone[i] {
+                        stone += 1.0;
+                    }
+                    if w.grid.nest[i] != sim::grid::NO_NEST {
+                        nest = w.grid.nest[i];
+                    }
+                }
+            }
+            put_u8(out, ((food / per_block / food_max).min(1.0) * 255.0) as u8);
+            put_u8(out, ((stone / per_block) * 255.0) as u8);
+            put_u8(out, nest);
+            put_u8(out, 255);
+        }
+    }
+}
+
 /// `ColonyStats::food_delivered` (living ants only) is deliberately absent. It
 /// falls whenever a good forager dies of old age, so an operator watching it
 /// would read a thriving colony as a dying one. `delivered_total` is monotonic
@@ -545,6 +600,69 @@ mod tests {
         let mut b = Vec::new();
         encode_phero(&mut b, &w, 2);
         assert_eq!(b[14 + 3], 1, "alpha must name the colony that won the max");
+    }
+
+    #[test]
+    fn a_terrain_frame_is_a_header_plus_rgba_per_texel() {
+        let w = World::new(&small(), 1);
+        let mut b = Vec::new();
+        encode_terrain(&mut b, &w, 1);
+        assert_eq!(b.len(), 14 + 32 * 32 * 4);
+        assert_eq!(b[0], TAG_TERRAIN);
+        assert_eq!(b[13], 1);
+    }
+
+    #[test]
+    fn terrain_carries_stone_food_and_nests() {
+        let w = World::new(&small(), 1);
+        let mut b = Vec::new();
+        encode_terrain(&mut b, &w, 1);
+        let t = &b[14..];
+        let n = 32 * 32;
+        assert!((0..n).any(|i| t[4 * i] > 0), "no food anywhere on the map");
+        assert!((0..n).any(|i| t[4 * i + 1] > 0), "no stone anywhere");
+        let nests: Vec<u8> = (0..n)
+            .map(|i| t[4 * i + 2])
+            .filter(|&v| v != sim::grid::NO_NEST)
+            .collect();
+        assert!(!nests.is_empty(), "no nest tiles");
+        assert!(nests.iter().all(|&c| c < w.cfg.num_colonies));
+    }
+
+    #[test]
+    fn stone_downsamples_by_coverage_not_by_max() {
+        // A max would paint a whole super-cell solid for one stone corner and
+        // draw walls the ants can walk straight through. Terrain must be honest
+        // even though the pheromone layer deliberately is not.
+        let mut w = World::new(&small(), 1);
+        w.grid.stone.iter_mut().for_each(|s| *s = false);
+        let one = w.grid.idx(0, 0);
+        w.grid.stone[one] = true; // 1 of the 4 sub-cells of super-cell (0,0)
+
+        let mut b = Vec::new();
+        encode_terrain(&mut b, &w, 2);
+        let g = b[14 + 1];
+        assert!(
+            (60..=68).contains(&g),
+            "expected ~25% coverage (63), got {g}"
+        );
+    }
+
+    #[test]
+    fn terrain_food_is_normalised_by_the_patch_maximum() {
+        let mut w = World::new(&small(), 1);
+        w.grid.food.iter_mut().for_each(|f| *f = 0.0);
+        let i = w.grid.idx(3, 3);
+        w.grid.food[i] = w.cfg.food_patch_max;
+
+        let mut b = Vec::new();
+        encode_terrain(&mut b, &w, 1);
+        assert_eq!(b[14 + (3 * 32 + 3) * 4], 255, "a full cell must saturate");
+
+        // And beyond the maximum it clamps rather than wrapping to black.
+        w.grid.food[i] = w.cfg.food_patch_max * 10.0;
+        encode_terrain(&mut b, &w, 1);
+        assert_eq!(b[14 + (3 * 32 + 3) * 4], 255);
     }
 
     #[test]

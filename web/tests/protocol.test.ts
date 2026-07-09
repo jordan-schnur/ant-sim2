@@ -19,6 +19,7 @@ import {
   CONFIG_FIELDS,
   FLAG_ATTACKING,
   FLAG_CARRYING,
+  NO_NEST,
   N_PARAMS,
   POS_SCALE,
   TAG_ANTS,
@@ -27,6 +28,7 @@ import {
   TAG_CONFIG,
   TAG_HELLO,
   TAG_PHERO,
+  TAG_TERRAIN,
   TAG_STATS,
   antAt,
   cmdReset,
@@ -135,6 +137,59 @@ describe("pheromones", () => {
     expect(f.rgba[e.texel * 4 + 2]).toBe(e.value);
     expect(f.rgba[e.texel * 4 + 3]).toBe(e.owner);
     expect(e.value).toBeGreaterThan(32);
+  });
+});
+
+describe("terrain", () => {
+  it("agrees on dimensions and downsample factor", () => {
+    const f = decode(load("terrain.bin"));
+    expect(f?.kind).toBe("terrain");
+    if (f?.kind !== "terrain") return;
+    expect(f.w).toBe(expected.terrain.w);
+    expect(f.h).toBe(expected.terrain.h);
+    expect(f.factor).toBe(expected.terrain.factor);
+    expect(f.rgba.byteLength).toBe(f.w * f.h * 4);
+  });
+
+  it("recounts stone, food, and nest texels exactly as Rust did", () => {
+    // Recomputing the counts from the bytes catches a channel swap: reading
+    // stone out of the red channel would give a different tally.
+    const f = decode(load("terrain.bin"));
+    if (f?.kind !== "terrain") throw new Error("not a terrain frame");
+    const n = f.w * f.h;
+
+    let stone = 0;
+    let food = 0;
+    let nest = 0;
+    let maxFood = 0;
+    let maxStone = 0;
+    for (let i = 0; i < n; i++) {
+      if (f.rgba[i * 4] > 0) food++;
+      if (f.rgba[i * 4 + 1] > 0) stone++;
+      if (f.rgba[i * 4 + 2] !== NO_NEST) nest++;
+      maxFood = Math.max(maxFood, f.rgba[i * 4]);
+      maxStone = Math.max(maxStone, f.rgba[i * 4 + 1]);
+    }
+    expect(food).toBe(expected.terrain.foodTexels);
+    expect(stone).toBe(expected.terrain.stoneTexels);
+    expect(nest).toBe(expected.terrain.nestTexels);
+    expect(maxFood).toBe(expected.terrain.maxFood);
+    expect(maxStone).toBe(expected.terrain.maxStone);
+  });
+
+  it("shows a map rather than a void", () => {
+    expect(expected.terrain.stoneTexels).toBeGreaterThan(0);
+    expect(expected.terrain.foodTexels).toBeGreaterThan(0);
+    expect(expected.terrain.nestTexels).toBeGreaterThan(0);
+  });
+
+  it("nest ids are real colonies", () => {
+    const f = decode(load("terrain.bin"));
+    if (f?.kind !== "terrain") throw new Error("not a terrain frame");
+    for (let i = 0; i < f.w * f.h; i++) {
+      const nest = f.rgba[i * 4 + 2];
+      if (nest !== NO_NEST) expect(nest).toBeLessThan(expected.hello.numColonies);
+    }
   });
 });
 
@@ -314,8 +369,16 @@ describe("commands", () => {
 
 describe("tags", () => {
   it("match the Rust constants", () => {
-    expect([TAG_HELLO, TAG_ANTS, TAG_PHERO, TAG_STATS, TAG_ANT_DETAIL, TAG_ANT_GENOME, TAG_CONFIG])
-      .toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect([
+      TAG_HELLO,
+      TAG_ANTS,
+      TAG_PHERO,
+      TAG_STATS,
+      TAG_ANT_DETAIL,
+      TAG_ANT_GENOME,
+      TAG_CONFIG,
+      TAG_TERRAIN,
+    ]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it("each fixture leads with its own tag", () => {
@@ -327,6 +390,7 @@ describe("tags", () => {
       ["detail.bin", TAG_ANT_DETAIL],
       ["genome.bin", TAG_ANT_GENOME],
       ["config.bin", TAG_CONFIG],
+      ["terrain.bin", TAG_TERRAIN],
     ];
     for (const [name, tag] of pairs) {
       expect(new Uint8Array(load(name))[0], name).toBe(tag);

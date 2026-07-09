@@ -75,7 +75,7 @@ async fn serve(socket: WebSocket, h: Handles) {
         // not `Send`, and holding one across the `await` below would make the
         // whole task unspawnable.
         let initial: Vec<Frame> = {
-            [&h.hello, &h.config, &h.ants, &h.phero, &h.stats]
+            [&h.hello, &h.config, &h.terrain, &h.ants, &h.phero, &h.stats]
                 .iter()
                 .map(|rx| rx.borrow().clone())
                 .collect()
@@ -88,6 +88,7 @@ async fn serve(socket: WebSocket, h: Handles) {
 
         let mut ants = h.ants.clone();
         let mut phero = h.phero.clone();
+        let mut terrain = h.terrain.clone();
         let mut stats = h.stats.clone();
         let mut detail = h.detail.clone();
         let mut genome = h.genome.clone();
@@ -103,6 +104,7 @@ async fn serve(socket: WebSocket, h: Handles) {
             let f = tokio::select! {
                 Ok(()) = ants.changed()   => ants.borrow_and_update().clone(),
                 Ok(()) = phero.changed()  => phero.borrow_and_update().clone(),
+                Ok(()) = terrain.changed() => terrain.borrow_and_update().clone(),
                 Ok(()) = stats.changed()  => stats.borrow_and_update().clone(),
                 Ok(()) = detail.changed() => detail.borrow_and_update().clone(),
                 Ok(()) = genome.changed() => genome.borrow_and_update().clone(),
