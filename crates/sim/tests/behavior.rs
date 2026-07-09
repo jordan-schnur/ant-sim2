@@ -198,7 +198,10 @@ fn scripted_foragers_keep_delivering_and_do_not_deadlock() {
          The foragers are stuck against terrain or each other."
     );
     let food_left: f32 = late.grid.food.iter().sum();
-    assert!(food_left > 0.0, "the map was stripped bare; test is inconclusive");
+    assert!(
+        food_left > 0.0,
+        "the map was stripped bare; test is inconclusive"
+    );
 }
 
 #[test]
@@ -249,7 +252,6 @@ fn a_random_colony_does_not_immediately_explode_in_population() {
         "population ran away: birth_cost is too cheap"
     );
 }
-
 
 /// The maps are not the problem; the search is.
 ///

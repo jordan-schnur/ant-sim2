@@ -3,6 +3,7 @@ use crate::apply::{
     apply_combat, apply_food, apply_metabolism, apply_movement, apply_nest, deposit_passive,
     sweep_deaths, ApplyCtx,
 };
+use crate::brain::{Activations, Brain};
 use crate::colony::ColonyState;
 use crate::config::Config;
 use crate::genome::Genome;
@@ -11,6 +12,7 @@ use crate::intent::{think, Intent};
 use crate::pheromone::Pheromones;
 use crate::reproduce::reproduce;
 use crate::rng::Pcg32;
+use crate::sense::sense;
 use crate::spatial::Spatial;
 use crate::stats::{colony_stats, ColonyStats};
 use crate::worldgen::generate;
@@ -88,10 +90,54 @@ impl World {
             self.spatial.resize(&self.cfg);
         }
         self.spatial.rebuild(&self.ants);
+        if self.ants.attacking.len() != self.ants.len() {
+            self.ants.clear_attacking();
+        }
+    }
+
+    /// Index of a living ant by id. `Ants::id` is sorted, so this binary-searches.
+    pub fn index_of(&self, id: u64) -> Option<usize> {
+        self.ants.id.binary_search(&id).ok()
+    }
+
+    /// The living ant nearest a world coordinate. Used by click-to-select; the
+    /// ant frame carries no ids, so the server resolves the pick.
+    pub fn nearest_ant(&self, x: f32, y: f32) -> Option<u64> {
+        let mut best: Option<(f32, u64)> = None;
+        for i in 0..self.ants.len() {
+            if !self.ants.alive[i] {
+                continue;
+            }
+            let dx = self.ants.x[i] - x;
+            let dy = self.ants.y[i] - y;
+            let d2 = dx * dx + dy * dy;
+            // Strict `<` keeps the lowest id on a tie, matching the apply phase.
+            if best.map_or(true, |(bd, _)| d2 < bd) {
+                best = Some((d2, self.ants.id[i]));
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    /// One ant's full layer activations, recomputed against the current world.
+    ///
+    /// Lives here because `sense` needs the spatial index, which stays private.
+    /// Read-only: it does not advance the ant's recurrent memory.
+    pub fn activations(&self, i: usize) -> Activations {
+        let inputs = sense(
+            i,
+            &self.ants,
+            &self.grid,
+            &self.phero,
+            &self.spatial,
+            &self.cfg,
+        );
+        self.ants.genome[i].forward(&inputs)
     }
 
     pub fn tick(&mut self) {
         self.spatial.rebuild(&self.ants);
+        self.ants.clear_attacking();
 
         // --- Phase 1: parallel, read-only. Cannot race by construction. ---
         let intents: Vec<Intent> = (0..self.ants.len())
@@ -334,6 +380,116 @@ mod tests {
     fn stats_report_one_row_per_colony() {
         let w = World::new(&small(), 1);
         assert_eq!(w.stats().len(), 2);
+    }
+
+    #[test]
+    fn nearest_ant_finds_the_closest_living_ant() {
+        // Founders share nest tiles, so several ants sit on identical
+        // coordinates. Move one somewhere unambiguous rather than assuming
+        // positions are unique.
+        let mut w = World::new(&small(), 1);
+        w.ants.x[7] = 30.0;
+        w.ants.y[7] = 30.0;
+        assert_eq!(w.nearest_ant(30.1, 30.1), Some(w.ants.id[7]));
+
+        w.ants.alive[7] = false;
+        assert_ne!(w.nearest_ant(30.1, 30.1), Some(w.ants.id[7]));
+    }
+
+    #[test]
+    fn nearest_ant_breaks_a_positional_tie_on_the_lower_id() {
+        // Co-located ants are the common case at spawn, so the tie-break must
+        // be defined rather than incidental. Lowest id wins, as in apply.
+        let w = World::new(&small(), 1);
+        let (x, y) = (w.ants.x[0], w.ants.y[0]);
+        let tied: Vec<u64> = (0..w.ants.len())
+            .filter(|&i| w.ants.x[i] == x && w.ants.y[i] == y)
+            .map(|i| w.ants.id[i])
+            .collect();
+        assert!(tied.len() > 1, "expected co-located founders");
+        assert_eq!(w.nearest_ant(x, y), Some(*tied.iter().min().unwrap()));
+    }
+
+    #[test]
+    fn nearest_ant_is_none_in_an_empty_world() {
+        let mut w = World::new(&small(), 1);
+        w.ants.alive.iter_mut().for_each(|a| *a = false);
+        assert_eq!(w.nearest_ant(0.0, 0.0), None);
+    }
+
+    #[test]
+    fn index_of_round_trips_an_ant_id() {
+        let w = World::new(&small(), 1);
+        let id = w.ants.id[5];
+        assert_eq!(w.index_of(id), Some(5));
+        assert_eq!(w.index_of(9_999_999), None);
+    }
+
+    #[test]
+    fn activations_match_a_direct_forward_pass() {
+        let mut w = World::new(&small(), 1);
+        w.tick();
+        let a = w.activations(3);
+        let expected = w.ants.genome[3].forward(&a.inputs);
+        assert_eq!(a.outputs, expected.outputs);
+        assert_eq!(a.h1, expected.h1);
+    }
+
+    #[test]
+    fn activations_do_not_advance_the_ants_memory() {
+        // The inspector polls this ~4x a second. If it mutated recurrent state,
+        // watching an ant would change what the ant does.
+        let mut w = World::new(&small(), 1);
+        w.tick();
+        let before = w.ants.memory[3];
+        let _ = w.activations(3);
+        assert_eq!(before, w.ants.memory[3]);
+    }
+
+    #[test]
+    fn an_attacking_ant_is_flagged_and_the_flag_clears_next_tick() {
+        // Two colonies packed onto one nest so foes are adjacent from tick 1.
+        let cfg = Config {
+            width: 32,
+            height: 32,
+            num_colonies: 2,
+            initial_ants_per_colony: 30,
+            ..Config::default()
+        };
+        let mut w = World::new(&cfg, 11);
+
+        let mut ever_attacked = false;
+        for _ in 0..400 {
+            w.tick();
+            if (0..w.ants.len()).any(|i| w.ants.is_attacking(i)) {
+                ever_attacked = true;
+                break;
+            }
+        }
+        assert!(ever_attacked, "no ant ever landed an attack in 400 ticks");
+
+        // The flag is per-tick, not cumulative: a tick in which nobody swings
+        // must leave every flag false. Drive that by removing all foes.
+        w.ants.colony.iter_mut().for_each(|c| *c = 0);
+        w.tick();
+        assert!(
+            (0..w.ants.len()).all(|i| !w.ants.is_attacking(i)),
+            "attacking flag survived a tick with no foes to attack"
+        );
+    }
+
+    #[test]
+    fn the_attacking_flag_never_perturbs_the_trajectory() {
+        // It is an observation field. Two worlds that differ only in a stale
+        // flag must tick to the same hash.
+        let mut a = World::new(&small(), 5);
+        let mut b = World::new(&small(), 5);
+        b.ants.attacking.iter_mut().for_each(|f| *f = true);
+        for _ in 0..50 {
+            a.tick();
+            b.tick();
+        }
+        assert_eq!(a.state_hash(), b.state_hash());
     }
 
     #[test]

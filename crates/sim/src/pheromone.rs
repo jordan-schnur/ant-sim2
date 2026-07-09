@@ -360,7 +360,10 @@ mod tests {
         p.deposit_scent(mid - 1, 1000.0, 1);
         p.deposit_scent(mid + 1, 10.0, 3);
         p.step(&cfg);
-        assert_eq!(p.owner[mid], 1, "the stronger colony should hold the ground");
+        assert_eq!(
+            p.owner[mid], 1,
+            "the stronger colony should hold the ground"
+        );
     }
 
     #[test]

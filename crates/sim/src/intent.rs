@@ -179,7 +179,10 @@ mod tests {
     #[test]
     fn memory_outputs_are_carried_on_the_intent() {
         let (c, mut a, g, p, s) = world();
-        force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.0, 0.5, -0.5, 0.25, -0.25]);
+        force_outputs(
+            &mut a.genome[0],
+            [0.0, 0.0, 0.0, 0.0, 0.5, -0.5, 0.25, -0.25],
+        );
         let i = think(0, &a, &g, &p, &s, &c);
         for (got, want) in i.memory.iter().zip([0.5, -0.5, 0.25, -0.25]) {
             assert!((got - want).abs() < 1e-5, "{got} != {want}");

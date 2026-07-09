@@ -40,11 +40,34 @@ pub struct Ants {
     pub genome: Vec<Genome>,
     pub rng: Vec<Pcg32>,
     pub alive: Vec<bool>,
+
+    /// Landed an attack this tick. Pure observation: nothing senses it and it
+    /// never feeds an intent, so it cannot perturb the trajectory.
+    ///
+    /// Not serialised. It is derived per-tick, and keeping it out of the
+    /// snapshot means adding it did not change the wire layout of a saved
+    /// `World` — the golden master stayed valid. `World::rebuild_index`
+    /// restores its length after a load; until then it is empty, which is why
+    /// reads go through `is_attacking`.
+    #[serde(skip)]
+    pub attacking: Vec<bool>,
 }
 
 impl Ants {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Tolerates the empty vector left by deserialisation.
+    #[inline]
+    pub fn is_attacking(&self, i: usize) -> bool {
+        self.attacking.get(i).copied().unwrap_or(false)
+    }
+
+    /// Called at the top of each tick. Also repairs the length after a load.
+    pub fn clear_attacking(&mut self) {
+        self.attacking.clear();
+        self.attacking.resize(self.id.len(), false);
     }
 
     pub fn len(&self) -> usize {
@@ -67,7 +90,8 @@ impl Ants {
         // and all randomness lives in the serial reproduce phase, drawing from
         // `World::rng`. Keep this field: adding it later would change every
         // ant's stream and invalidate the golden master.
-        self.rng.push(Pcg32::new(s.id, s.birth_tick.wrapping_add(1)));
+        self.rng
+            .push(Pcg32::new(s.id, s.birth_tick.wrapping_add(1)));
         self.id.push(s.id);
         self.colony.push(s.colony);
         self.x.push(s.x);
@@ -82,6 +106,7 @@ impl Ants {
         self.memory.push([0.0; N_MEMORY]);
         self.genome.push(s.genome);
         self.alive.push(true);
+        self.attacking.push(false);
     }
 
     /// Floored cell.
@@ -130,6 +155,9 @@ impl Ants {
         retain(&mut self.memory, &keep);
         retain(&mut self.genome, &keep);
         retain(&mut self.rng, &keep);
+        if self.attacking.len() == keep.len() {
+            retain(&mut self.attacking, &keep);
+        }
         self.alive.retain(|_| {
             let v = keep[k];
             k += 1;

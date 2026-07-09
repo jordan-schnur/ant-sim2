@@ -255,7 +255,10 @@ mod tests {
         s.rebuild(&ants);
         let (friends, foes) = s.counts_in_radius(&ants, 4, 4, 1, 1);
         assert_eq!(friends, 2, "self plus the neighbour at (5,4)");
-        assert_eq!(foes, 1, "the ant at (3,4); the one at (0,0) is out of range");
+        assert_eq!(
+            foes, 1,
+            "the ant at (3,4); the one at (0,0) is out of range"
+        );
     }
 
     #[test]

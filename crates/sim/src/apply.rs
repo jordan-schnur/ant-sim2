@@ -150,6 +150,9 @@ pub fn apply_combat(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyC
         return;
     };
     let v = v as usize;
+    if let Some(f) = ants.attacking.get_mut(i) {
+        *f = true;
+    }
 
     let damage = ctx.cfg.attack_damage
         * ants.size[i]

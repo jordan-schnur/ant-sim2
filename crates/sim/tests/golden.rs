@@ -54,9 +54,8 @@ fn the_tick_still_produces_the_recorded_world() {
         return;
     }
 
-    let bytes = std::fs::read(FIXTURE).unwrap_or_else(|e| {
-        panic!("missing fixture {FIXTURE}: {e}. Run with REGENERATE_GOLDEN=1")
-    });
+    let bytes = std::fs::read(FIXTURE)
+        .unwrap_or_else(|e| panic!("missing fixture {FIXTURE}: {e}. Run with REGENERATE_GOLDEN=1"));
     let expected = load(&bytes).unwrap();
 
     assert_eq!(

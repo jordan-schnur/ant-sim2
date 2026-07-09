@@ -348,7 +348,10 @@ mod tests {
         reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(3, 3));
 
         let free_ant = (0..ants.len()).find(|&i| ants.colony[i] == 0).unwrap();
-        assert_eq!(ants.lineage[free_ant], 42, "should descend from the archive");
+        assert_eq!(
+            ants.lineage[free_ant], 42,
+            "should descend from the archive"
+        );
         assert_eq!(cols[0].next_lineage_hint, 42);
     }
 

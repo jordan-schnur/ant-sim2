@@ -284,7 +284,10 @@ mod tests {
         let mut s = Spatial::new(&c);
         s.rebuild(&a);
         let inputs = sense(0, &a, &grid, &phero, &s, &c);
-        assert!(inputs[IN_COUNTS] > 0.0, "should see one friend besides itself");
+        assert!(
+            inputs[IN_COUNTS] > 0.0,
+            "should see one friend besides itself"
+        );
         assert!(inputs[IN_COUNTS + 1] > 0.0, "should see one foe");
     }
 
@@ -329,7 +332,10 @@ mod tests {
         for w in samples.windows(2) {
             assert!(w[1] - w[0] > 0.05, "adjacent decades too close: {w:?}");
         }
-        assert!(*samples.last().unwrap() < 1.0, "saturated at the top decade");
+        assert!(
+            *samples.last().unwrap() < 1.0,
+            "saturated at the top decade"
+        );
     }
 
     #[test]

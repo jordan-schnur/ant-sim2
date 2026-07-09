@@ -48,7 +48,11 @@ pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
                 deaths: c.deaths,
                 floor_spawns: c.floor_spawns,
                 mean_size: if population == 0 { 0.0 } else { size_sum / n },
-                mean_lineage: if population == 0 { 0.0 } else { lineage_sum / n },
+                mean_lineage: if population == 0 {
+                    0.0
+                } else {
+                    lineage_sum / n
+                },
                 food_delivered: delivered,
                 delivered_total: c.delivered_total,
             }
