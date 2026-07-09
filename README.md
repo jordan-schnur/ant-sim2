@@ -15,8 +15,35 @@ Design: [`docs/superpowers/specs/2026-07-09-antsim-design.md`](docs/superpowers/
 ## Shape
 
 - `sim` — the simulation. Pure, deterministic, no I/O. Testable without a server or browser.
-- `server` — owns the clock and a WebSocket. Tick rate is decoupled from frame rate.
-- `web` — a dumb renderer. TypeScript + WebGL2. Holds no simulation state.
+- `server` — owns the clock and a WebSocket. Tick rate is decoupled from frame rate. *(not built yet)*
+- `web` — a dumb renderer. TypeScript + WebGL2. Holds no simulation state. *(not built yet)*
+
+## Running it
+
+```bash
+cargo test --workspace --release
+cargo run -p headless --release -- --ticks 500000 --every 5000 --seed 1 > run.csv
+```
+
+`headless` prints one CSV row per colony. The column to watch is
+`delivered_total` — cumulative food carried home, the only fitness signal in the
+project. (`food_delivered` counts only *living* ants and falls when a good
+forager dies of old age.)
+
+## Does it evolve?
+
+Yes, slowly. Over 500,000 ticks the delivery rate rises about 8×, six of eight
+colonies discover foraging, and two never do. But **97.7% of all ants are born
+from the extinction floor rather than paid for out of a colony's food store** —
+the safety net, not the economy, is doing the reproducing. Read
+[`docs/superpowers/notes/2026-07-09-first-500k-tick-run.md`](docs/superpowers/notes/2026-07-09-first-500k-tick-run.md)
+before tuning anything.
+
+A short run is actively misleading: at tick 5,000 every colony looks dead. The
+curve does not bend until roughly tick 100,000.
+
+Performance on an M-series Mac, 512×512: 489 ticks/sec at 320 ants, 234
+ticks/sec at 10,000 ants.
 
 ## Future directions
 
