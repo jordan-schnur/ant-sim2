@@ -32,6 +32,7 @@ pub mod reproduce;
 pub mod rng;
 pub mod sense;
 pub mod spatial;
+pub mod worldgen;
 
 #[cfg(test)]
 mod tests {
