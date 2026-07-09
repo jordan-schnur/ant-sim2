@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>antsim2</title>
+    <style>
+      :root {
+        --bg: #0d0d0f;
+        --panel: #16161a;
+        --panel-2: #1e1e24;
+        --line: #2a2a32;
+        --text: #d8d8e0;
+        --dim: #8a8a96;
+        --accent: #6fb4ff;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.45 ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+        overflow: hidden;
+      }
+
+      #app { display: flex; height: 100vh; }
+
+      .rail {
+        width: 240px;
+        flex: 0 0 240px;
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+        overflow-y: auto;
+        padding: 12px;
+      }
+      .rail.right { border-right: none; border-left: 1px solid var(--line); width: 300px; flex-basis: 300px; }
+      .rail.collapsed { display: none; }
+
+      #world-wrap { flex: 1; position: relative; min-width: 0; }
+      #world { display: block; width: 100%; height: 100%; cursor: crosshair; }
+      #world.panning { cursor: grabbing; }
+
+      .overlay {
+        position: absolute; top: 8px; left: 8px;
+        background: rgba(0,0,0,0.55);
+        padding: 4px 8px; border-radius: 4px;
+        color: var(--dim); pointer-events: none;
+        font-size: 12px;
+      }
+      .collapse {
+        position: absolute; top: 8px; background: rgba(0,0,0,0.55);
+        border: 1px solid var(--line); color: var(--dim);
+        border-radius: 4px; cursor: pointer; padding: 2px 7px;
+      }
+      #collapse-left { left: 8px; top: 34px; }
+      #collapse-right { right: 8px; }
+
+      h2 {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+        color: var(--dim); margin: 16px 0 8px; font-weight: 600;
+      }
+      h2:first-child { margin-top: 0; }
+
+      button {
+        background: var(--panel-2); color: var(--text);
+        border: 1px solid var(--line); border-radius: 4px;
+        padding: 5px 9px; cursor: pointer; font: inherit;
+      }
+      button:hover { border-color: var(--accent); }
+      button.on { background: var(--accent); color: #06121f; border-color: var(--accent); }
+
+      .row { display: flex; gap: 5px; margin-bottom: 6px; flex-wrap: wrap; }
+      .row > button { flex: 1; }
+
+      label.check { display: flex; align-items: center; gap: 7px; padding: 3px 0; cursor: pointer; }
+
+      .slider { margin-bottom: 9px; }
+      .slider .head { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; }
+      .slider .head b { color: var(--text); font-weight: 500; }
+      .slider input { width: 100%; margin: 2px 0 0; accent-color: var(--accent); }
+
+      .colony { border: 1px solid var(--line); border-radius: 5px; padding: 8px; margin-bottom: 8px; background: var(--panel-2); }
+      .colony .title { display: flex; align-items: center; gap: 7px; font-weight: 600; margin-bottom: 5px; }
+      .swatch { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
+      .kv { display: grid; grid-template-columns: 1fr auto; font-size: 12px; color: var(--dim); }
+      .kv b { color: var(--text); font-weight: 500; }
+      .colony canvas { width: 100%; height: 40px; display: block; margin-top: 6px; }
+
+      #inspector .kv { margin-bottom: 2px; }
+      #nn { width: 100%; height: 260px; display: block; background: #0a0a0c; border: 1px solid var(--line); border-radius: 5px; margin-top: 8px; }
+      .muted { color: var(--dim); }
+      .status { font-size: 11px; color: var(--dim); margin-top: 10px; }
+      .status.bad { color: #ff7a6b; }
+      .bar { height: 5px; background: #000; border-radius: 3px; overflow: hidden; margin: 3px 0 6px; }
+      .bar > div { height: 100%; background: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="rail left" id="left-rail"></aside>
+      <div id="world-wrap">
+        <canvas id="world"></canvas>
+        <div class="overlay" id="overlay">connecting…</div>
+        <button class="collapse" id="collapse-left" title="Toggle left rail">&#9668;</button>
+        <button class="collapse" id="collapse-right" title="Toggle right rail">&#9658;</button>
+      </div>
+      <aside class="rail right" id="right-rail"></aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

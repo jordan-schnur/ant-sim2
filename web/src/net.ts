@@ -53,8 +53,12 @@ export class Net {
     this.ws?.close();
   }
 
-  send(bytes: Uint8Array<ArrayBuffer>): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(bytes);
+  send(bytes: Uint8Array): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    // Copy rather than pass `bytes.buffer`: that would send the whole backing
+    // buffer, which is only ever the right length by accident. Commands are at
+    // most 9 bytes, so the copy costs nothing and cannot silently send padding.
+    this.ws.send(bytes.slice().buffer as ArrayBuffer);
   }
 
   /** Exposed for tests: routes one frame into the store. */
