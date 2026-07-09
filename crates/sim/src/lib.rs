@@ -28,6 +28,7 @@ pub mod genome;
 pub mod grid;
 pub mod intent;
 pub mod pheromone;
+pub mod reproduce;
 pub mod rng;
 pub mod sense;
 pub mod spatial;
