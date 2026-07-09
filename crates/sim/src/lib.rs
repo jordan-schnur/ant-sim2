@@ -21,6 +21,7 @@ pub const N_PARAMS: usize = N_INPUTS * N_HIDDEN1
 
 pub mod ants;
 pub mod brain;
+pub mod colony;
 pub mod config;
 pub mod genome;
 pub mod grid;
