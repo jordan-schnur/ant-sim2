@@ -21,6 +21,7 @@ pub const N_PARAMS: usize = N_INPUTS * N_HIDDEN1
 
 pub mod config;
 pub mod grid;
+pub mod pheromone;
 pub mod rng;
 
 #[cfg(test)]
