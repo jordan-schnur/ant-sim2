@@ -19,6 +19,7 @@ pub const N_PARAMS: usize = N_INPUTS * N_HIDDEN1
     + N_HIDDEN2 * N_OUTPUTS
     + N_OUTPUTS;
 
+pub mod brain;
 pub mod config;
 pub mod genome;
 pub mod grid;
