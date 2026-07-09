@@ -26,6 +26,7 @@ pub mod genome;
 pub mod grid;
 pub mod pheromone;
 pub mod rng;
+pub mod spatial;
 
 #[cfg(test)]
 mod tests {
