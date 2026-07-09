@@ -84,7 +84,7 @@ Rust is **not installed** on this machine. Homebrew 6.0.5 is present. This task 
 - Consumes: nothing.
 - Produces: a `sim` library crate that compiles; `cargo test -p sim` works.
 
-- [ ] **Step 1: Install Rust via rustup**
+- [x] **Step 1: Install Rust via rustup**
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
@@ -96,7 +96,7 @@ Expected: prints `rustc 1.8x.x (...)`. If `curl` is blocked, `brew install rustu
 
 Note: `--no-modify-path` avoids editing the user's shell profile. Add `source "$HOME/.cargo/env"` to your session, or use absolute `~/.cargo/bin/cargo`.
 
-- [ ] **Step 2: Pin the toolchain**
+- [x] **Step 2: Pin the toolchain**
 
 Create `rust-toolchain.toml`:
 
@@ -106,7 +106,7 @@ channel = "stable"
 components = ["rustfmt", "clippy"]
 ```
 
-- [ ] **Step 3: Create the workspace root**
+- [x] **Step 3: Create the workspace root**
 
 Create `Cargo.toml`:
 
@@ -130,7 +130,7 @@ clap = { version = "4", features = ["derive"] }
 
 `bincode` 1.3 is pinned deliberately: 2.x changed its encoding, which would silently invalidate the golden-master fixture.
 
-- [ ] **Step 4: Create the sim crate manifest**
+- [x] **Step 4: Create the sim crate manifest**
 
 Create `crates/sim/Cargo.toml`:
 
@@ -146,7 +146,7 @@ serde.workspace = true
 bincode.workspace = true
 ```
 
-- [ ] **Step 5: Create the crate root with a failing placeholder test**
+- [x] **Step 5: Create the crate root with a failing placeholder test**
 
 Create `crates/sim/src/lib.rs`:
 
@@ -183,20 +183,20 @@ mod tests {
 }
 ```
 
-- [ ] **Step 6: Create .gitignore**
+- [x] **Step 6: Create .gitignore**
 
 ```
 /target
 ```
 
-- [ ] **Step 7: Run the test**
+- [x] **Step 7: Run the test**
 
 Run: `cargo test -p sim`
 Expected: PASS, `test tests::param_count_matches_spec ... ok`.
 
 This test exists to freeze the topology. If someone changes a layer width, this fails and forces them to update the spec.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add Cargo.toml rust-toolchain.toml .gitignore crates/sim
@@ -223,7 +223,7 @@ We hand-roll PCG32 rather than depend on `rand`. Determinism is a *tested guaran
   - `Pcg32::next_gaussian(&mut self) -> f32` — mean 0, stddev 1
   - `Pcg32::next_below(&mut self, n: u32) -> u32` — uniform in `[0, n)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/rng.rs` with only the tests at the bottom (no impl yet):
 
@@ -288,14 +288,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 First add `pub mod rng;` to `crates/sim/src/lib.rs` (below the consts).
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Pcg32 in this scope`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/rng.rs`:
 
@@ -362,12 +362,12 @@ impl Pcg32 {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p sim`
 Expected: PASS, 7 tests (6 rng + the param count).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/rng.rs crates/sim/src/lib.rs
@@ -388,7 +388,7 @@ Nothing in `sim` may read a hardcoded magic number for a simulation rule. All of
 - Consumes: nothing.
 - Produces: `pub struct Config` (`Clone`, `Debug`, `Serialize`, `Deserialize`, `PartialEq`) with `Default`, and `Config::cell_count(&self) -> usize`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `crates/sim/src/config.rs` with only:
 
@@ -465,14 +465,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod config;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Config`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/config.rs`:
 
@@ -679,12 +679,12 @@ impl Default for Config {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS. `a_mean_forager_turns_a_profit_on_a_round_trip` is the one to watch — it is a cheap arithmetic stand-in for Task 20's expensive simulated forager test, and it fails first if you retune the taxes carelessly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/config.rs crates/sim/src/lib.rs
@@ -711,7 +711,7 @@ git commit -m "feat(sim): Config with every tunable simulation constant"
   - `Grid::is_stone(&self, x: i32, y: i32) -> bool` — out of bounds counts as stone
   - `Grid::harvest(&mut self, i: usize, amount: f32) -> f32` — removes and returns up to `amount`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/grid.rs` with only:
 
@@ -774,14 +774,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod grid;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Grid`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/grid.rs`:
 
@@ -851,12 +851,12 @@ impl Grid {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 16 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/grid.rs crates/sim/src/lib.rs
@@ -885,7 +885,7 @@ The colony-scent layer stores **one strength and one owner per cell**, not one l
   - `Pheromones::scent_for(&self, i: usize, colony: u8) -> (f32, f32)` — returns `(own, foreign)`
   - `Pheromones::step(&mut self, cfg: &Config)` — evaporate + diffuse all three layers
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/pheromone.rs` with only:
 
@@ -996,14 +996,14 @@ mod tests {
 
 That last test is the one that matters most: it proves a trail to an exhausted food patch cannot mislead the colony forever.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod pheromone;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Pheromones`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/pheromone.rs`:
 
@@ -1114,12 +1114,12 @@ fn diffuse_decay(layer: &mut [f32], w: u16, h: u16, diffusion: f32, evaporation:
 
 Note the `src = layer.to_vec()` clone: diffusion must read the *previous* state everywhere, or the result depends on iteration order. That allocation is a known cost; Task 13 hoists it into a reusable scratch buffer once the profile says it matters.
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 25 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/pheromone.rs crates/sim/src/lib.rs
@@ -1148,7 +1148,7 @@ The trait tax is why evolution has anything to discover. If speed were free ever
   - `Genome::upkeep(&self, cfg: &Config, size: f32) -> f32`
   - `Genome::max_energy(&self, cfg: &Config, size: f32) -> f32`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/genome.rs` with only:
 
@@ -1268,14 +1268,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod genome;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Genome`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/genome.rs`:
 
@@ -1425,12 +1425,12 @@ impl Genome {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 34 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/genome.rs crates/sim/src/lib.rs
@@ -1457,7 +1457,7 @@ git commit -m "feat(sim): Genome, clamped Traits, and the metabolic trait tax"
 
 The `Brain` trait exists so a future NEAT implementation can be substituted without touching the sim loop (spec §11).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/brain.rs` with only:
 
@@ -1522,14 +1522,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod brain;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find trait Brain`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/brain.rs`:
 
@@ -1604,12 +1604,12 @@ impl Brain for Genome {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 40 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/brain.rs crates/sim/src/lib.rs
@@ -1639,7 +1639,7 @@ Struct-of-arrays, not `Vec<Ant>`, because the think phase streams over a few fie
   - `Ants::retain_alive(&mut self)` — order-preserving compaction
   - `Ants::population(&self, colony: u8) -> u32`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/ants.rs` with only:
 
@@ -1752,14 +1752,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod ants;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Ants`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/ants.rs`:
 
@@ -1914,12 +1914,12 @@ fn retain<T>(v: &mut Vec<T>, keep: &[bool]) {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 47 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/ants.rs crates/sim/src/lib.rs
@@ -1949,7 +1949,7 @@ Rebuilt once per tick by counting sort — `O(n)`, allocation-free after warmup,
   - `Spatial::counts_in_radius(&self, ants: &Ants, cx: i32, cy: i32, r: i32, colony: u8) -> (u32, u32)` — `(friends, foes)`, excluding no one
   - `Spatial::first_adjacent_foe(&self, ants: &Ants, cx: i32, cy: i32, colony: u8) -> Option<u32>` — 8-neighbourhood plus own cell, lowest ant index
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/spatial.rs` with only:
 
@@ -2086,14 +2086,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod spatial;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type Spatial`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/spatial.rs`:
 
@@ -2235,12 +2235,12 @@ impl Spatial {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 57 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/spatial.rs crates/sim/src/lib.rs
@@ -2271,7 +2271,7 @@ There is deliberately **no homing compass input.** The nest emits colony scent, 
 
 **Why the pheromone sensor is logarithmic, not `tanh`.** A nest tile emits 50 scent per tick against an evaporation of 0.999, so its equilibrium value is in the tens of thousands, while a faint trail twenty cells away is order 1. A `tanh(0.1 * v)` squash returns `1.0` for anything above about 50 — meaning the entire neighbourhood of the nest reads as a flat, saturated `1.0` with **zero gradient**. An ant standing in it would be blind to the very signal it is supposed to climb home on. `ln(1 + v) / log_div` stays monotone and discriminable across four orders of magnitude, and `ln(1 + 0) = 0` keeps the empty case at exactly zero.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/sense.rs` with only:
 
@@ -2495,14 +2495,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod sense;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find function sense`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/sense.rs`:
 
@@ -2618,12 +2618,12 @@ pub fn sense(
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 70 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/sense.rs crates/sim/src/lib.rs
@@ -2649,7 +2649,7 @@ git commit -m "feat(sim): egocentric five-whisker sensing, no homing compass"
   - `pub const GRAB_THRESHOLD: f32 = 0.3;`
   - `pub fn think(i: usize, ants: &Ants, grid: &Grid, phero: &Pheromones, spatial: &Spatial, cfg: &Config) -> Intent`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/intent.rs` with only:
 
@@ -2757,14 +2757,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod intent;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find function think`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/intent.rs`:
 
@@ -2829,12 +2829,12 @@ pub fn think(
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 76 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/intent.rs crates/sim/src/lib.rs
@@ -2861,7 +2861,7 @@ Fitness is food delivered. It appears here and nowhere else.
   - `ColonyState::select_parent(&self, ants: &Ants, rng: &mut Pcg32) -> Option<usize>`
   - `ColonyState::archive_parent(&self, rng: &mut Pcg32) -> Option<&Genome>`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/colony.rs` with only:
 
@@ -2985,14 +2985,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod colony;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type ColonyState`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/colony.rs`:
 
@@ -3100,12 +3100,12 @@ impl ColonyState {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 87 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/colony.rs crates/sim/src/lib.rs
@@ -3136,7 +3136,7 @@ Two rules worth stating up front, because they are easy to get subtly wrong:
   - `pub fn deposit_passive(cell: usize, carrying: f32, colony: u8, ctx: &mut ApplyCtx)` — takes loose fields, not `&Ants`, so the caller can hold `&mut Ants` at the same time
   - `pub fn wrap_angle(a: f32) -> f32`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/apply.rs` with only:
 
@@ -3394,14 +3394,14 @@ mod tests {
 
 That last test pins a real ambiguity: dropping food *onto* a nest tile must not create a food pile there, because `apply_nest` already banks it. Otherwise an ant could farm the ground under its own nest.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod apply;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find function apply_movement`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/apply.rs`:
 
@@ -3535,12 +3535,12 @@ pub fn deposit_passive(cell: usize, carrying: f32, colony: u8, ctx: &mut ApplyCt
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 105 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/apply.rs crates/sim/src/lib.rs
@@ -3566,7 +3566,7 @@ Combat never sets `alive = false` directly — it drives energy to zero and lets
   - `pub fn apply_metabolism(i: usize, ants: &mut Ants, cfg: &Config)`
   - `pub fn sweep_deaths(ants: &mut Ants, ctx: &mut ApplyCtx)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to the `mod tests` block in `crates/sim/src/apply.rs`:
 
@@ -3792,12 +3792,12 @@ Append to the `mod tests` block in `crates/sim/src/apply.rs`:
     }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find function apply_combat`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Append to the implementation section of `crates/sim/src/apply.rs` (above `mod tests`):
 
@@ -3901,12 +3901,12 @@ pub fn sweep_deaths(ants: &mut Ants, ctx: &mut ApplyCtx) {
 }
 ```
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `cargo test -p sim`
 Expected: PASS, 121 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/apply.rs
@@ -3932,7 +3932,7 @@ The extinction floor is an explicit research-tool affordance, not biology. A col
   - `pub const NEWBORN_ENERGY_FRAC: f32 = 0.6;`
   - `pub fn reproduce(ants: &mut Ants, colonies: &mut [ColonyState], cfg: &Config, tick: u64, next_id: &mut u64, rng: &mut Pcg32)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/reproduce.rs` with only:
 
@@ -4146,14 +4146,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod reproduce;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find function reproduce`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/reproduce.rs`:
 
@@ -4260,12 +4260,12 @@ fn spawn_into(
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 134 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/reproduce.rs crates/sim/src/lib.rs
@@ -4288,7 +4288,7 @@ Terrain variety is a requirement, not decoration: a uniform map is the known cau
   - `pub const NEST_RADIUS: i32 = 1;` (a 3×3 nest)
   - `pub fn generate(cfg: &Config, rng: &mut Pcg32) -> (Grid, Vec<ColonyState>)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/sim/src/worldgen.rs` with only:
 
@@ -4448,14 +4448,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod worldgen;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find function generate`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Prepend to `crates/sim/src/worldgen.rs`:
 
@@ -4584,14 +4584,14 @@ fn stamp(grid: &mut Grid, cx: f32, cy: f32, r: f32, mut f: impl FnMut(&mut Grid,
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
 Expected: PASS, 145 tests.
 
 If the stone-coverage tests fail, tune `Config::stone_density` (and, if blobs look wrong, `stone_blob_radius`) rather than the derived blob count. Realised coverage runs slightly under `stone_density` because blobs overlap; at the default 0.06 expect roughly 5–6%.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/sim/src/worldgen.rs crates/sim/src/lib.rs
@@ -4629,7 +4629,7 @@ Two support changes ride along, both discovered by this task's needs:
   - `World::state_hash(&self) -> u64`
   - `World::rebuild_index(&mut self)`
 
-- [ ] **Step 1: Add `fertility` to `Grid` with its test**
+- [x] **Step 1: Add `fertility` to `Grid` with its test**
 
 In `crates/sim/src/grid.rs`, add the field to the struct and to `Grid::new` (`fertility: vec![0.0; n]`), then add:
 
@@ -4680,7 +4680,7 @@ In `crates/sim/src/worldgen.rs`, inside `food_patch`'s closure, set fertility al
         }
 ```
 
-- [ ] **Step 2: Add `Default` and `resize` to `Spatial`**
+- [x] **Step 2: Add `Default` and `resize` to `Spatial`**
 
 In `crates/sim/src/spatial.rs`:
 
@@ -4700,12 +4700,12 @@ impl Spatial {
 }
 ```
 
-- [ ] **Step 3: Run the grid tests**
+- [x] **Step 3: Run the grid tests**
 
 Run: `cargo test -p sim grid`
 Expected: PASS, including the two new regrow tests.
 
-- [ ] **Step 4: Write the failing stats test**
+- [x] **Step 4: Write the failing stats test**
 
 Create `crates/sim/src/stats.rs` with only:
 
@@ -4783,7 +4783,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5: Implement stats**
+- [x] **Step 5: Implement stats**
 
 Prepend to `crates/sim/src/stats.rs`:
 
@@ -4841,7 +4841,7 @@ pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
 }
 ```
 
-- [ ] **Step 6: Write the failing world tests**
+- [x] **Step 6: Write the failing world tests**
 
 Create `crates/sim/src/world.rs` with only:
 
@@ -4985,14 +4985,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 7: Run to verify they fail**
+- [x] **Step 7: Run to verify they fail**
 
 Add `pub mod stats;` and `pub mod world;` to `lib.rs`.
 
 Run: `cargo test -p sim`
 Expected: FAIL — `cannot find type World`.
 
-- [ ] **Step 8: Implement `World`**
+- [x] **Step 8: Implement `World`**
 
 Prepend to `crates/sim/src/world.rs`:
 
@@ -5216,12 +5216,12 @@ impl Spatial {
 
 Note the import list omits `NEWBORN_ENERGY_FRAC` — founders start full, newborns do not, and only `reproduce` needs that constant.
 
-- [ ] **Step 9: Run the full suite**
+- [x] **Step 9: Run the full suite**
 
 Run: `cargo test -p sim`
 Expected: PASS. `no_colony_ever_goes_permanently_extinct` and `no_ant_ever_stands_on_stone` are the two that would expose a broken tick.
 
-- [ ] **Step 10: Check it is not pathologically slow before moving on**
+- [x] **Step 10: Check it is not pathologically slow before moving on**
 
 ```bash
 cargo test -p sim --release -- --nocapture no_colony_ever_goes_permanently_extinct
@@ -5229,7 +5229,7 @@ cargo test -p sim --release -- --nocapture no_colony_ever_goes_permanently_extin
 
 Expected: completes in a few seconds. If a 64×64 world with 20 ants takes minutes, stop and profile — something is quadratic.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add crates/sim/src
@@ -5250,7 +5250,7 @@ The determinism guarantee is worth nothing unless a test would notice it breakin
 - Consumes: `World::new`, `World::tick`, `World::state_hash`.
 - Produces: nothing; this is a guard.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `crates/sim/tests/determinism.rs`:
 
@@ -5301,12 +5301,12 @@ fn a_long_run_stays_deterministic() {
 }
 ```
 
-- [ ] **Step 2: Run to verify the first three pass and the last is slow**
+- [x] **Step 2: Run to verify the first three pass and the last is slow**
 
 Run: `cargo test -p sim --release --test determinism`
 Expected: PASS, 4 tests. If `thread_count_does_not_change_the_outcome` fails, there is a write in the think phase or an unordered iteration — fix it now, before any more behavior lands on top.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add crates/sim/tests/determinism.rs
@@ -5332,7 +5332,7 @@ git commit -m "test(sim): determinism is invariant to thread count"
   - `pub fn load(bytes: &[u8]) -> Result<World, SnapshotError>` — rebuilds the spatial index before returning
   - `pub enum SnapshotError { Encode(String), Decode(String) }` (`Debug`, `Display`, `std::error::Error`)
 
-- [ ] **Step 1: Write the failing snapshot tests**
+- [x] **Step 1: Write the failing snapshot tests**
 
 Create `crates/sim/tests/snapshot.rs`:
 
@@ -5383,14 +5383,14 @@ fn an_empty_buffer_is_an_error() {
 
 `a_loaded_world_ticks_identically_to_the_original` is the one that earns its keep: it fails if `rebuild_index` is forgotten, or if the RNG state is not serialised.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Add `pub mod snapshot;` to `lib.rs`.
 
 Run: `cargo test -p sim --test snapshot`
 Expected: FAIL — unresolved import `sim::snapshot`.
 
-- [ ] **Step 3: Implement snapshot**
+- [x] **Step 3: Implement snapshot**
 
 Create `crates/sim/src/snapshot.rs`:
 
@@ -5429,12 +5429,12 @@ pub fn load(bytes: &[u8]) -> Result<World, SnapshotError> {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim --test snapshot`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Write the golden-master test**
+- [x] **Step 5: Write the golden-master test**
 
 Create `crates/sim/tests/golden.rs`:
 
@@ -5500,7 +5500,7 @@ fn the_tick_still_produces_the_recorded_world() {
 }
 ```
 
-- [ ] **Step 6: Generate the fixture, then verify it holds**
+- [x] **Step 6: Generate the fixture, then verify it holds**
 
 ```bash
 REGENERATE_GOLDEN=1 cargo test -p sim --release --test golden
@@ -5509,7 +5509,7 @@ cargo test -p sim --release --test golden
 
 Expected: the first regenerates, the second passes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/sim/src/snapshot.rs crates/sim/src/lib.rs crates/sim/tests/snapshot.rs crates/sim/tests/golden.rs crates/sim/tests/golden_master.bin
@@ -5539,7 +5539,7 @@ So we split the question in two, and each half gets a test that can actually be 
 - Consumes: `World`, `apply_*`, `Genome`, `Intent`, `sense::squash_phero`.
 - Produces: `crates/sim/tests/known_good_forager.bin`, loadable via `bincode::deserialize::<Genome>`.
 
-- [ ] **Step 1: Prove an ant can actually read the way home**
+- [x] **Step 1: Prove an ant can actually read the way home**
 
 Before asking whether a forager can profit, check that the sensory signal it must follow exists at the distance it must follow it from. The nest scent gradient is the *only* homing cue in the design — there is no compass input — so if it is flat or saturated at foraging range, no genome can ever learn to return, and every downstream test fails for a reason that looks like "evolution didn't work."
 
@@ -5634,7 +5634,7 @@ fn scent_reaches_beyond_the_guaranteed_food_patch() {
 }
 ```
 
-- [ ] **Step 2: Run the gradient diagnostics**
+- [x] **Step 2: Run the gradient diagnostics**
 
 Run: `cargo test -p sim --release --test gradient`
 Expected: PASS, 4 tests.
@@ -5655,7 +5655,7 @@ The right-hand column is why this test exists. Under a `tanh` squash every dista
 
 **If `the_nest_gradient_is_discriminable_at_foraging_range` fails, stop and fix it before anything else.** The lever is the ratio of `scent_diffusion` to the scent's decay rate `1 - scent_evaporation`: their ratio sets the gradient's length scale. Raising `scent_diffusion` spreads the beacon farther but flattens it; lowering `scent_evaporation` sharpens it but shortens its reach. Print the profile (`--nocapture` and a `dbg!`) and tune until the values at 9 and 16 cells are clearly separated. This ratio is the single most important pheromone constant in the project, and it is why both fields are live-tunable in Plan 2.
 
-- [ ] **Step 3: Write the "world is winnable" test with a scripted controller**
+- [x] **Step 3: Write the "world is winnable" test with a scripted controller**
 
 Create `crates/sim/tests/behavior.rs`:
 
@@ -5804,21 +5804,21 @@ fn a_random_colony_does_not_immediately_explode_in_population() {
 }
 ```
 
-- [ ] **Step 4: Run them**
+- [x] **Step 4: Run them**
 
 Run: `cargo test -p sim --release --test behavior`
 Expected: PASS, 4 tests.
 
 If `a_scripted_forager_grows_the_colony_food_store` fails, **do not proceed to the hill-climber.** The economy is misconfigured. Re-derive the break-even sum in `Config`'s doc comment with your current constants — most likely a tax coefficient dominates, as `tax_vision` once did. Raise `harvest_rate`, lower the taxes, or shorten `SEED_PATCH_DISTANCE` until a hand-written forager can turn a profit. There is no point asking evolution to solve a game that cannot be won.
 
-- [ ] **Step 5: Commit the behavioral tests**
+- [x] **Step 5: Commit the behavioral tests**
 
 ```bash
 git add crates/sim/tests/gradient.rs crates/sim/tests/behavior.rs
 git commit -m "test(sim): gradient diagnostics and a scripted forager that profits"
 ```
 
-- [ ] **Step 6: Write the offline hill-climber as an ignored test**
+- [x] **Step 6: Write the offline hill-climber as an ignored test**
 
 Create `crates/sim/tests/known_good.rs`:
 
@@ -5895,7 +5895,7 @@ fn the_known_good_forager_still_forages() {
 }
 ```
 
-- [ ] **Step 7: Run the search and inspect the output**
+- [x] **Step 7: Run the search and inspect the output**
 
 ```bash
 cargo test -p sim --release --test known_good -- --ignored --nocapture
@@ -5905,7 +5905,7 @@ Expected: printed `new best` lines with a rising score, ending well above zero, 
 
 **If the final score is 0.0**, that is a real finding, not a failing step. It means a mutation hill-climb over 300 generations cannot discover foraging from a random start. By this point Step 2 has proved the homing gradient is readable and Step 4 has proved a competent forager profits, so the world is sound and the problem is the search. Try, in order: raise `mutation_rate`, lengthen the evaluation to 10,000 ticks, and lower `food_evaporation` toward 0.99 so trails persist long enough to be worth following. Note in the commit message what you changed and what the score became. This tuning loop **is** the project.
 
-- [ ] **Step 8: Verify the guard test passes and commit**
+- [x] **Step 8: Verify the guard test passes and commit**
 
 Run: `cargo test -p sim --release --test known_good`
 Expected: PASS (1 test; the search is ignored).
@@ -5929,7 +5929,7 @@ The deliverable of Plan 1. Run a world, print per-colony stats as CSV, and you c
 - Consumes: the whole `sim` public API.
 - Produces: a binary, `cargo run -p headless --release -- --ticks 100000`.
 
-- [ ] **Step 1: Create the manifest and register the workspace member**
+- [x] **Step 1: Create the manifest and register the workspace member**
 
 In the root `Cargo.toml`, change `members` to:
 
@@ -5951,7 +5951,7 @@ clap.workspace = true
 bincode.workspace = true
 ```
 
-- [ ] **Step 2: Write the CLI**
+- [x] **Step 2: Write the CLI**
 
 Create `crates/headless/src/main.rs`:
 
@@ -6021,7 +6021,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- [ ] **Step 3: Build and smoke-test it**
+- [x] **Step 3: Build and smoke-test it**
 
 ```bash
 cargo run -p headless --release -- --ticks 2000 --every 500
@@ -6029,7 +6029,7 @@ cargo run -p headless --release -- --ticks 2000 --every 500
 
 Expected: a CSV header and 4 rows per colony (8 colonies × 4 sample points = 32 rows), every population at or above the extinction floor.
 
-- [ ] **Step 4: Measure the tick rate — this is the performance gate**
+- [x] **Step 4: Measure the tick rate — this is the performance gate**
 
 ```bash
 time cargo run -p headless --release -- --ticks 10000 --every 100000
@@ -6045,19 +6045,19 @@ cargo run -p headless --release -- --ticks 2000 --every 100000
 
 after temporarily raising `initial_ants_per_colony` to 1250 in `Config::default()`. If the tick rate collapses, profile before proceeding — the likely culprits, in order, are the `to_vec()` clone inside `diffuse_decay` (hoist it into a reusable scratch buffer on `Pheromones`), `Ants::population` being O(n) and called in a loop by `reproduce` (cache a per-colony count), and `colony_stats` doing a full scan (only called on demand, so probably fine).
 
-- [ ] **Step 5: Run the whole suite once more**
+- [x] **Step 5: Run the whole suite once more**
 
 Run: `cargo test --workspace --release`
 Expected: all green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/headless Cargo.toml
 git commit -m "feat(headless): CSV stats runner for observing evolution"
 ```
 
-- [ ] **Step 7: Actually look at the output**
+- [x] **Step 7: Actually look at the output**
 
 ```bash
 cargo run -p headless --release -- --ticks 500000 --every 5000 --save /tmp/run1.bin > /tmp/run1.csv
