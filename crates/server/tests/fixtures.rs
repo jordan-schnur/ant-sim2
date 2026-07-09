@@ -51,6 +51,27 @@ fn fixture_world() -> World {
     w.ants.y[0] = 4.25;
     w.ants.carrying[0] = 2.0;
     w.ants.attacking[0] = true;
+
+    // Every field gets a DISTINCT, NON-ZERO value.
+    //
+    // A 50-tick world leaves `store`, `deaths`, `delivered_total`, and `lineage`
+    // at exactly 0.0. A decoder reading any of them at the wrong offset would
+    // still find a zero there and every `toBeCloseTo(0)` would pass — the test
+    // would be blind to precisely the offset bugs it exists to catch. Distinct
+    // values also mean a decoder that swaps two fields cannot accidentally agree.
+    w.ants.heading[0] = 0.75;
+    w.ants.energy[0] = 13.5;
+    w.ants.size[0] = 1.25;
+    w.ants.lineage[0] = 5;
+    w.ants.food_delivered[0] = 9.75;
+    w.ants.age[0] = 37;
+
+    w.colonies[0].store = 123.5;
+    w.colonies[0].births = 11;
+    w.colonies[0].deaths = 7;
+    w.colonies[0].floor_spawns = 3;
+    w.colonies[0].delivered_total = 45.25;
+
     // The ant moved, so its sensed neighbour counts must be recomputed against
     // where it now is, not where it was.
     w.rebuild_index();
@@ -132,7 +153,7 @@ fn emit_protocol_fixtures() {
             "  \"ants\": {{ \"tick\": {}, \"count\": {}, \"first\": {{ \"x\": {}, \"y\": {}, \"colony\": {}, \"size\": {}, \"flags\": {} }} }},\n",
             "  \"phero\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"firstTexel\": [{}, {}, {}, {}], \"brightestScent\": {{ \"texel\": {}, \"value\": {}, \"owner\": {} }} }},\n",
             "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"floorSpawns\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
-            "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"trait0\": {}, \"input0\": {}, \"output0\": {} }},\n",
+            "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
             "  \"genome\": {{ \"id\": 42, \"nParams\": {}, \"param0\": {} }},\n",
             "  \"config\": {{ \"count\": {}, \"field0\": {} }}\n",
             "}}\n"
@@ -172,8 +193,18 @@ fn emit_protocol_fixtures() {
         w.ants.age[0],
         w.ants.lineage[0],
         traits[0],
+        traits[7],
         act.inputs[0],
+        act.inputs[43],
+        // Every layer's first AND last element. Pinning only inputs[0] and
+        // outputs[0] let a shifted `h2` read into `h1` undetected: both are
+        // tanh outputs, so the wrong values still looked entirely plausible.
+        act.h1[0],
+        act.h1[15],
+        act.h2[0],
+        act.h2[15],
         act.outputs[0],
+        act.outputs[7],
         g.params.len(),
         g.params[0],
         CONFIG_FIELDS.len(),
@@ -199,6 +230,51 @@ fn emit_protocol_fixtures() {
     let (_, value, owner) = brightest_scent_texel(&w);
     assert!(value > 32, "phero fixture is nearly black (peak {value})");
     assert!(owner < w.cfg.num_colonies, "peak scent has no owner");
+
+    // A zero-valued field makes its cross-language assertion vacuous: a decoder
+    // reading the wrong offset finds zero there too. Guard the guard.
+    let s = &stats[0];
+    for (name, v) in [
+        ("store", s.store),
+        ("mean_size", s.mean_size),
+        ("mean_lineage", s.mean_lineage),
+        ("delivered_total", s.delivered_total),
+    ] {
+        assert!(v != 0.0, "stats fixture field `{name}` is zero");
+    }
+    for (name, v) in [
+        ("births", s.births),
+        ("deaths", s.deaths),
+        ("floor_spawns", s.floor_spawns),
+    ] {
+        assert!(v != 0, "stats fixture field `{name}` is zero");
+    }
+    assert_ne!(w.ants.lineage[0], 0, "detail fixture lineage is zero");
+    assert_ne!(w.ants.age[0], 0, "detail fixture age is zero");
+    assert_ne!(traits[0], 0.0, "detail fixture trait0 is zero");
+
+    // The activation layers must be mutually distinguishable, or a decoder that
+    // reads `h2` at `h1`'s offset finds equally plausible tanh values and the
+    // cross-language test never notices.
+    assert_ne!(act.h1[0], act.h2[0], "h1 and h2 are indistinguishable");
+    assert_ne!(act.h1[15], act.h2[15], "h1 and h2 tails are indistinguishable");
+    assert_ne!(act.outputs[0], act.outputs[7], "output head equals its tail");
+
+    // Distinct, so a decoder that swaps two fields cannot coincidentally agree.
+    let scalars = [
+        s.store,
+        s.mean_size,
+        s.mean_lineage,
+        s.delivered_total,
+        w.ants.energy[0],
+        w.ants.heading[0],
+        w.ants.food_delivered[0],
+    ];
+    for i in 0..scalars.len() {
+        for j in (i + 1)..scalars.len() {
+            assert_ne!(scalars[i], scalars[j], "fixture scalars {i} and {j} collide");
+        }
+    }
 }
 
 fn phero_texel(w: &World, k: usize) -> u8 {
