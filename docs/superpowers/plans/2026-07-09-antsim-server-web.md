@@ -103,6 +103,24 @@ R, G, B are `squash_phero(v, cfg.phero_log_div) * 255`, reusing `sim::sense::squ
 
 **Downsampling is 2×2 max, not mean**, and A is taken from the sub-cell that won the scent max. A trail is often one cell wide; averaging it with three empty neighbours quarters its brightness and it vanishes at the default 256×256, which would read as "no trails formed". Max over-shows sparse pheromone. That is the correct failure direction for an instrument whose job is to reveal whether trails emerge.
 
+**`0x08` Terrain** — ~4 fps. Same header shape as Pheromones.
+
+*Added during implementation; the plan as written had no way to send the map.*
+The pheromone frame carries *trails*, not the food they lead to, and knows
+nothing about the rock the ants walk around, so the client would have drawn an
+empty void with smears on it.
+
+| offset | type | field |
+| --- | --- | --- |
+| 0 | u8 | tag = 0x08 |
+| 1 | u64 | tick |
+| 9 | u16 | w |
+| 11 | u16 | h |
+| 13 | u8 | downsample factor |
+| 14 + 4i | u8 x4 | R = standing food / `food_patch_max`, G = stone coverage, B = nest colony (255 = none), A = 255 |
+
+Stone downsamples by **coverage fraction**, not max. A max would paint a whole super-cell solid for one stone corner and draw walls the ants can walk straight through. The pheromone layer deliberately over-shows thin trails; terrain must be honest.
+
 **`0x04` Stats** — ~4 fps. Header 10 bytes, then 46 bytes per colony.
 
 | offset | type | field |

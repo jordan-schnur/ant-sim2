@@ -73,10 +73,30 @@ fn nearest_free_food(i: usize, ants: &Ants, w: &World, spatial: &Spatial) -> Opt
 /// blocked, stops, recomputes the same blocked heading next tick, and never
 /// moves again. Measured: 19 of 20 ants frozen by tick 1500, with 67k food
 /// still on the map.
-const SIDESTEPS: [f32; 17] = [
-    0.0, 0.39, -0.39, 0.79, -0.79, 1.18, -1.18, 1.57, -1.57, 1.96, -1.96, 2.36, -2.36, 2.75, -2.75,
-    3.14, -3.14,
-];
+const SIDESTEPS: [f32; 17] = {
+    use std::f32::consts::PI;
+    // Eight evenly spaced offsets each way, out to a full half-turn.
+    const S: f32 = PI / 8.0;
+    [
+        0.0,
+        S,
+        -S,
+        2.0 * S,
+        -2.0 * S,
+        3.0 * S,
+        -3.0 * S,
+        4.0 * S,
+        -4.0 * S,
+        5.0 * S,
+        -5.0 * S,
+        6.0 * S,
+        -6.0 * S,
+        7.0 * S,
+        -7.0 * S,
+        PI,
+        -PI,
+    ]
+};
 
 /// The forager policy, written by hand: harvest where you stand until half
 /// loaded, then carry it home. Steer at the goal, stepping around whatever is

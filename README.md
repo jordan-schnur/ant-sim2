@@ -15,10 +15,29 @@ Design: [`docs/superpowers/specs/2026-07-09-antsim-design.md`](docs/superpowers/
 ## Shape
 
 - `sim` — the simulation. Pure, deterministic, no I/O. Testable without a server or browser.
-- `server` — owns the clock and a WebSocket. Tick rate is decoupled from frame rate. *(not built yet)*
-- `web` — a dumb renderer. TypeScript + WebGL2. Holds no simulation state. *(not built yet)*
+- `server` — owns the clock and a WebSocket. Tick rate is decoupled from frame rate.
+- `web` — a dumb renderer. TypeScript + WebGL2. Holds no simulation state.
 
 ## Running it
+
+Watch it in a browser:
+
+```bash
+cargo build --release
+(cd web && npm install && npm run build)
+cargo run -p server --release -- --web web/dist
+# open http://127.0.0.1:8080
+```
+
+Pause, single-step, 1x/10x/100x, pan and zoom, toggle the pheromone layers,
+click an ant to watch its network fire, and drag the tuning sliders to retune
+the running simulation without recompiling. `f` fits the view, `Esc` clears the
+selection, space toggles pause.
+
+For development, `npm run dev` in `web/` serves the client on :5173 and proxies
+`/ws` to the Rust server on :8080.
+
+Or run it headless and read the numbers:
 
 ```bash
 cargo test --workspace --release
@@ -29,6 +48,21 @@ cargo run -p headless --release -- --ticks 500000 --every 5000 --seed 1 > run.cs
 `delivered_total` — cumulative food carried home, the only fitness signal in the
 project. (`food_delivered` counts only *living* ants and falls when a good
 forager dies of old age.)
+
+## The wire format
+
+`server` and `web` each hold a hand-written copy of the binary protocol, and
+neither can see the other. A reordered field is silent — it renders as garbled
+ants, not as an error. `crates/server/tests/fixtures.rs` emits byte fixtures and
+`web/tests/protocol.test.ts` decodes them, which is the only place the two halves
+meet. After an intentional format change:
+
+```bash
+cargo test -p server --test fixtures   # regenerate
+cd web && npm test                     # expect failure until protocol.ts agrees
+```
+
+That failure is the point.
 
 ## Does it evolve?
 
@@ -42,8 +76,15 @@ before tuning anything.
 A short run is actively misleading: at tick 5,000 every colony looks dead. The
 curve does not bend until roughly tick 100,000.
 
+The colony cards in the UI show `free` — the share of a colony's ants that came
+from the extinction floor rather than being paid for out of its food store.
+Watch that number, and watch `birth_cost`, `harvest_rate`, `refuel_rate`, and
+`growth_threshold`, which are on sliders for exactly this reason.
+
 Performance on an M-series Mac, 512×512: 489 ticks/sec at 320 ants, 234
-ticks/sec at 10,000 ants.
+ticks/sec at 10,000 ants. The server caps a tick batch by wall clock as well as
+by count, so 100x fast-forward keeps drawing at 20 fps and the pause button
+stays responsive.
 
 ## Future directions
 
