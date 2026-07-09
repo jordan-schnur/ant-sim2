@@ -68,14 +68,18 @@ The world is struct-of-arrays (`Vec<f32>` for energy, `Vec<u16>` for x, and so o
    world.
 2. **Apply (serial, ant-ID order).** Intents are applied in order. Conflicts resolve
    deterministically — two ants targeting the same cell: lower ID wins.
-3. **Field update (parallel).** Pheromone evaporation and diffusion, food regrowth.
+3. **Field update.** Pheromone evaporation and diffusion, food regrowth. Serial in v1 — at 262k cells it is not the bottleneck, and keeping it serial removes any question about float summation order. Parallelise with `rayon` only if a profile says to.
 
 Because phase 1 is read-only and phase 2 is ordered, **the simulation is deterministic
 regardless of thread count.** That determinism underwrites save/load, seeded replay, and
 a trustworthy neural-network inspector.
 
-Each ant carries its own RNG seeded from `(ant_id, birth_tick)`, so parallel iteration
-order cannot influence outcomes.
+Determinism comes from the phase structure, not from the RNG: the think phase draws no
+random numbers at all, and every random draw the simulation makes (mutation, spawn
+placement, initial headings) happens in the serial phase from a single `World`-owned
+stream. Each ant *also* carries a private RNG seeded from `(ant_id, birth_tick)`, held in
+reserve so that any future stochastic ant behaviour — noisy sensors, probabilistic actions
+— can be added without letting thread scheduling influence outcomes.
 
 **Performance sanity check.** A 44→16→16→8 network is 1,088 weights plus 40 biases, so
 ~1,128 multiply-accumulates per ant per tick. Ten thousand ants is ~11M MACs per tick;
@@ -165,11 +169,34 @@ and different colonies can place different bets.
 Tuning these coefficients is the most important tuning work in the project. They are
 live-editable from the UI, never baked into the binary.
 
+**Two constraints bound the tax, and they pull against each other.** They must both hold,
+and a config that violates either produces a world where nothing can evolve:
+
+1. **A round trip to the nearest food must yield more than it costs.** Yield is the ant's
+   carry capacity; cost is upkeep times trip duration, plus movement. If this ratio drops
+   below one, the food store only ever drains, no births occur, and the colony dies no
+   matter how good its genomes are. The game is unwinnable, and evolution cannot fix an
+   unwinnable game.
+2. **An unfed ant must starve well before it dies of old age.** Otherwise starvation
+   selects for nothing, because every ant reaches its lifespan with energy to spare.
+
+Note that a tax coefficient's face value is misleading: `vision` ranges to 8.0 while
+`armor` ranges to 1.0, so an identical coefficient on vision costs eight times as much.
+The first draft of these constants made every trip net-negative for exactly this reason.
+Both constraints are pinned by cheap arithmetic tests, and constraint 1 is pinned again by
+a full simulated forager.
+
 ### 5.4 Combat
 
 The network has an `attack` output. When it is high and a target is adjacent, damage is
 dealt, scaled by `size × strength`, reduced by the target's `armor`. Attacking costs
 energy. Killing yields energy (scavenging), so aggression *can* pay.
+
+Deaths are flagged once, in an end-of-tick sweep, so a victim driven below zero energy
+remains a legal target for the rest of that tick. Consequently **only the blow that carries
+a victim across zero collects the scavenging bonus.** Without that rule every ant in a mob
+would "kill" the same corpse and each mint a full bounty — energy created from nothing, and
+a strategy evolution would find immediately.
 
 Ants sense nearby ants' colony scent, so "attack foreigners, ignore nestmates" is
 learnable rather than hardcoded. Warfare, raiding, and peaceful coexistence are all
@@ -219,6 +246,16 @@ The same sensor that reports friend-or-foe also reports where home is. Homing, f
 recognition, and territory all fall out of one layer. A lineage that never learns to read
 that gradient never returns food and dies out.
 
+**Pheromone inputs are compressed logarithmically**, as `ln(1 + v) / k`, not squashed with
+`tanh`. This is not a detail. A nest tile's equilibrium scent is four orders of magnitude
+above a faint trail, and any saturating squash returns a flat `1.0` across the whole
+neighbourhood of the nest — erasing exactly the gradient an ant must climb, precisely
+where it matters most. Because there is no compass, a saturated scent sensor makes homing
+*unlearnable*, not merely hard. The ratio of `scent_diffusion` to the scent's decay rate
+sets the gradient's length scale, and it must remain discriminable out to the distance of
+the nearest food. A dedicated diagnostic test asserts this, because it would otherwise
+present as the generic "nothing evolves" failure.
+
 The brain sits behind a `Brain` trait so an alternate implementation can be substituted
 without touching the sim loop.
 
@@ -256,13 +293,20 @@ evolutionary experiments in one shared, contested world.
 ### 6.3 Extinction floor
 
 Each colony keeps a hall-of-fame archive of its best-ever genomes by food delivered. If a
-colony drops below five living ants, its nest spawns free ants from mutated archive
-copies.
+colony drops below five living ants, its nest spawns a free ant from a mutated archive
+copy — **at most one per respawn interval**, not a full instant top-up.
 
-A colony can be beaten down and rebound, but never silently zeroes out while the operator
-is away. This is a **research-tool decision, not a biology one**: a dead colony is an
-empty region of screen that teaches nothing. Weak colonies still stay small and lose
-territory, so selection is intact.
+The rate limit is load-bearing. Refilling a colony in the same tick its ants die turns a
+besieged nest into an energy fountain: killing yields energy, so an enemy camped on the
+nest would farm an endless conveyor of free bodies, minting energy from nothing at a fixed
+location that evolution is very good at finding. A slow trickle lets a colony rebuild
+without subsidising its attacker.
+
+A colony can therefore be beaten down to zero briefly, but never stays extinct while the
+operator is away. This is a **research-tool decision, not a biology one**: a dead colony is
+an empty region of screen that teaches nothing. Weak colonies still stay small and lose
+territory, so selection is intact. Free spawns are counted and reported per colony, so a
+colony on life support is never mistaken for one that is thriving.
 
 Combined with generous starting stores, large starting energy, and food patches seeded
 near nests, this addresses the single most common way alife projects fail — total
@@ -378,15 +422,40 @@ Determinism is a **tested property, not an aspiration.**
 - **Golden master.** Serialize a small world, tick 1,000 times, compare against a
   checked-in snapshot. Catches unintended physics changes during tuning. Lives in one
   clearly-labeled test with a documented regeneration command, because intentional rule
-  changes will require regenerating it.
-- **Behavioral tests.** A hand-built straight-walking genome reaches the food patch ahead
-  of it. A colony seeded with a hand-authored **known-good forager genome** grows its food
-  store over 50k ticks. A colony of random genomes with no nearby food shrinks to the
-  extinction floor and stays there.
+  changes will require regenerating it. Note that it pins the *platform* too: `tanh`, `ln`,
+  and the trig functions differ in their last bits across architectures, so the fixture
+  must be regenerated when the development machine changes. Determinism is guaranteed
+  across thread counts, not across machines.
+- **Gradient diagnostics.** Bring the nest scent field to equilibrium and assert that the
+  sensed value decreases monotonically with distance, never saturates, and stays
+  discriminable out to the nearest food. Because there is no compass, this signal is the
+  sole basis for homing; if it is flat, no genome can learn to return, and the symptom is
+  indistinguishable from "evolution just hasn't worked yet."
+- **Economy arithmetic.** Cheap unit tests over `Config` asserting the two constraints in
+  §5.3: a mean forager profits on a round trip, and an unfed ant starves before old age.
+  These run in microseconds and fail before the expensive simulated tests do.
+- **Behavioral tests.** A colony driven by a **scripted forager** — a plain Rust policy,
+  bypassing the network entirely — grows its food store. A colony of random genomes with no
+  reachable food shrinks to the extinction floor and never affords a paid birth. A random
+  colony's population does not explode.
 
-That checked-in known-good forager genome is worth a great deal: it separates "the world
-is broken" from "evolution has not found it yet," otherwise the hardest bug class in the
-project to diagnose.
+**Separating "the world is broken" from "evolution has not found it yet" is the hardest
+bug class in this project**, and it needs two distinct instruments, because a single one
+cannot tell them apart.
+
+The first is the *scripted* forager above. An earlier draft of this spec called for a
+hand-wired forager **genome**, with weights set by hand. That cannot be built: the policy
+requires multiplying `carrying` by a scent gradient to decide whether to seek food or seek
+home, and a plain tanh MLP sums its inputs — it has no way to multiply two of them.
+Approximating a product with saturating units is fragile and unproven. Driving the apply
+functions directly with a hand-written policy tests the *world* and cannot fail for
+neural-network reasons, which is exactly the isolation we want.
+
+The second is a small seeded **hill-climber**, run offline once, whose winner is checked in
+as a fixture. It answers the separate question of whether a genome can express the policy
+at all. If the scripted forager profits and the hill-climber finds nothing, the world is
+sound and the search is the problem — a conclusion reachable in minutes rather than after a
+week of watching dots.
 
 ## 9. Error handling
 
@@ -401,9 +470,14 @@ I/O).
 
 | Failure | Mitigation | How it is diagnosed |
 | --- | --- | --- |
-| Every colony dies in the first minute | Extinction floor, generous starting stores, food seeded near nests | The known-good forager test tells you whether the world is winnable at all |
-| Nothing evolves; ants wander forever (**most likely real outcome**) | Live-tuning panel | Flat food-delivered curves on the per-colony charts. Usual causes: evaporation/diffusion ratio makes trails unreadable, or trait taxes so steep every mutation is worse than neutral |
+| **The economy is net-negative**: a trip costs more energy than the food it returns, so the store only drains | The two arithmetic constraints in §5.3, pinned by unit tests | The scripted-forager test fails. Re-derive the break-even sum; suspect a tax on a wide-ranged trait |
+| **Homing is unlearnable**: the scent sensor saturates near the nest, so there is no gradient to climb | Logarithmic pheromone compression; the scent diffusion/decay ratio | The gradient diagnostic test. Otherwise it masquerades as "nothing evolves" |
+| Every colony dies in the first minute | Extinction floor, generous starting stores, food seeded near nests | The scripted-forager test tells you whether the world is winnable at all |
+| Nothing evolves; ants wander forever (**most likely real outcome once the above are ruled out**) | Live-tuning panel | Flat food-delivered curves on the per-colony charts. Usual causes: evaporation/diffusion ratio makes trails unreadable, or trait taxes so steep every mutation is worse than neutral |
+| **Energy is created from nothing**, and evolution finds the exploit | Only the killing blow scavenges; extinction-floor respawns are rate-limited | Total colony energy or population climbing with no corresponding food delivered. Watch `floor_spawns` |
+| A colony looks alive but is on life support | Free floor spawns are counted and reported | `floor_spawns` rising while `births` stays at zero |
 | All colonies converge to one strategy | Terrain variety, mutation-rate slider | Identical trait charts across colonies |
+| Terrain density does not survive a map-size change, burying small test worlds in stone | Stone blob *count* is derived from a target density and the map area | The scale-invariance test across 64², 128², 256² |
 | Serial apply phase becomes the bottleneck | Expected past ~100k ants | It is the documented trigger for the spatial-sharding work |
 
 ## 11. Future directions

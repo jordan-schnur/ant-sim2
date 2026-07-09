@@ -25,6 +25,8 @@
 - **`sim` performs zero I/O.** No `println!`, no file access, no sockets, no threads it does not own. Snapshots are `serde` in/out of byte buffers; the *caller* writes files.
 - Rust edition 2021. `#![forbid(unsafe_code)]` in `sim/src/lib.rs`.
 - Every task ends with a green `cargo test -p sim` and a commit.
+- **The "Expected: PASS, N tests" counts are approximate.** They are a sanity check, not an assertion. The signal is that the *named* tests pass; do not chase an off-by-one in the total.
+- **Three tests guard the project's foundations, and a failure in any of them means stop, not tune-and-continue:** `thread_count_does_not_change_the_outcome` (determinism), `the_nest_gradient_is_discriminable_at_foraging_range` (homing is possible at all), and `a_scripted_forager_grows_the_colony_food_store` (the economy is winnable). Everything downstream assumes these three.
 
 ## File Structure
 
@@ -422,6 +424,44 @@ mod tests {
         let bytes = bincode::serialize(&c).unwrap();
         assert_eq!(c, bincode::deserialize::<Config>(&bytes).unwrap());
     }
+
+    /// Mean upkeep per tick at mean random traits, size 1.0. Mirrors
+    /// `Genome::upkeep` without depending on it, so a change to either side
+    /// of the economy trips this test rather than passing silently.
+    fn mean_upkeep(c: &Config) -> f32 {
+        c.base_upkeep + c.tax_speed * 0.525 + c.tax_strength * 0.5 + c.tax_armor * 0.5
+            + c.tax_vision * 4.5
+    }
+
+    #[test]
+    fn a_mean_forager_turns_a_profit_on_a_round_trip() {
+        // The single most important invariant in the whole config: if a trip
+        // costs more than it yields, no amount of evolution can save the
+        // colony, and every downstream test is testing a corpse.
+        let c = Config::default();
+        let travel = 2.0 * 12.0; // to SEED_PATCH_DISTANCE and back
+        let ticks = travel / 0.525 + 10.5 / c.harvest_rate;
+        let cost = mean_upkeep(&c) * ticks + c.move_cost * travel;
+        let yield_ = 10.5; // mean carry_capacity
+        assert!(yield_ > 2.0 * cost, "trip yields {yield_} but costs {cost}");
+    }
+
+    #[test]
+    fn starvation_bites_well_before_old_age() {
+        // If an unfed ant outlives its minimum lifespan, starvation stops
+        // selecting for anything.
+        let c = Config::default();
+        let ticks_to_starve = c.max_energy_per_size / mean_upkeep(&c);
+        assert!(ticks_to_starve < 2000.0, "unfed ant survives {ticks_to_starve} ticks");
+        assert!(ticks_to_starve > 200.0, "ants starve too fast to ever reach food");
+    }
+
+    #[test]
+    fn the_initial_store_is_a_fuel_reserve_not_a_birth_windfall() {
+        let c = Config::default();
+        let instant_births = c.initial_food_store / c.birth_cost;
+        assert!(instant_births < 25.0, "{instant_births} free births at t=0 is a population spike");
+    }
 }
 ```
 
@@ -443,6 +483,38 @@ use serde::{Deserialize, Serialize};
 ///
 /// The defaults are a *starting guess*, not a tuned equilibrium. Expect to
 /// sweep evaporation/diffusion and the trait taxes before anything evolves.
+///
+/// # The break-even calculation
+///
+/// The defaults below are chosen so a competent forager turns a profit. If it
+/// cannot, no amount of evolution helps — the game is unwinnable and the store
+/// only ever drains. Task 20's scripted-forager test guards this. The
+/// arithmetic, at mean random traits (speed 0.525, strength 0.5, armor 0.5,
+/// vision 4.5, carry 10.5) and size 1.0:
+///
+/// - upkeep/tick = 0.010 + 0.020(0.525) + 0.010(0.5) + 0.010(0.5) + 0.005(4.5)
+///                = 0.053
+/// - a round trip to the guaranteed patch at `SEED_PATCH_DISTANCE` = 12 cells
+///   is 24 cells of travel at 0.525 cells/tick = 46 ticks, plus 10.5 food at
+///   `harvest_rate` 2.0 = 5 ticks. Call it 51 ticks.
+/// - trip cost = 0.053 x 51 + 0.005 x 24 = ~2.8 energy
+/// - trip yield = 10.5 food, and refuelling is 1:1, so the margin is ~3.7x.
+///
+/// Two ratios matter, and they pull against each other:
+/// - **yield / trip cost** must be comfortably > 1, or the colony starves.
+/// - **`max_energy_per_size` / upkeep** is how long an unfed ant lives:
+///   30 / 0.053 = ~566 ticks. Push it much past ~2000 (the minimum lifespan)
+///   and starvation stops selecting for anything, because every ant dies of
+///   old age with a full tank.
+///
+/// Worked through with the values below: upkeep 0.0530/tick (vision is still
+/// 42% of it), trip 51 ticks, cost 2.82, yield 10.5 — a **3.7x margin**. An
+/// unfed founder lives 566 ticks; a newborn at 60% of a size-0.5 tank lives
+/// 340. Both comfortably under the 2000-tick minimum lifespan.
+///
+/// Earlier defaults set `tax_vision` at 0.02, which alone was over half of all
+/// upkeep and made every trip net-negative (cost ~19 against a yield of 10.5).
+/// If you retune, redo this sum.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     // --- World ---
@@ -450,6 +522,11 @@ pub struct Config {
     pub height: u16,
     pub num_colonies: u8,
     pub initial_ants_per_colony: u32,
+    /// Target fraction of the map covered by stone. Blob *count* is derived
+    /// from this and the map area, so terrain density is scale-invariant —
+    /// a 64x64 test world and the 512x512 real one look alike.
+    pub stone_density: f32,
+    pub stone_blob_radius: f32,
 
     // --- Colony economy ---
     pub initial_food_store: f32,
@@ -458,6 +535,11 @@ pub struct Config {
     pub max_births_per_tick: u32,
     /// Below this population, the nest spawns free ants from the hall of fame.
     pub extinction_floor: u32,
+    /// Minimum ticks between two free floor spawns for the same colony. Without
+    /// this the floor tops a colony back up *in the tick its ants die*, which
+    /// hands a besieging colony an infinite conveyor of free corpses to
+    /// scavenge — energy created from nothing at a fixed, findable location.
+    pub floor_respawn_interval: u64,
     pub hall_of_fame_size: usize,
     /// Energy per tick an ant regains while standing on its own nest.
     pub refuel_rate: f32,
@@ -479,6 +561,12 @@ pub struct Config {
     /// Colony scent deposited by each nest tile, every tick. Much larger than
     /// `ant_scent_emission`: this is the beacon ants climb to get home.
     pub nest_scent_emission: f32,
+    /// Divisor for the logarithmic pheromone sensor compression (see
+    /// `sense::squash_phero`). Pheromone magnitudes span four orders of
+    /// magnitude between a stale trail and a nest tile; a linear or tanh
+    /// squash saturates near the nest and erases the very gradient an ant
+    /// needs to find its way home.
+    pub phero_log_div: f32,
 
     // --- Metabolism and the trait tax ---
     pub base_upkeep: f32,
@@ -531,13 +619,19 @@ impl Default for Config {
             height: 512,
             num_colonies: 8,
             initial_ants_per_colony: 40,
+            stone_density: 0.06,
+            stone_blob_radius: 7.0,
 
-            initial_food_store: 5_000.0,
-            birth_cost: 50.0,
-            max_births_per_tick: 4,
+            // Enough to refuel through a bad stretch, but NOT a birth windfall:
+            // at birth_cost 40 this buys ~15 births, not 100. A huge initial
+            // store just converts to a population spike that then starves.
+            initial_food_store: 600.0,
+            birth_cost: 40.0,
+            max_births_per_tick: 2,
             extinction_floor: 5,
+            floor_respawn_interval: 200,
             hall_of_fame_size: 10,
-            refuel_rate: 5.0,
+            refuel_rate: 2.0,
 
             food_evaporation: 0.995,
             alarm_evaporation: 0.97,
@@ -549,19 +643,23 @@ impl Default for Config {
             alarm_emission: 5.0,
             ant_scent_emission: 0.5,
             nest_scent_emission: 50.0,
+            phero_log_div: 12.0,
 
-            base_upkeep: 0.02,
-            tax_speed: 0.05,
-            tax_strength: 0.04,
-            tax_armor: 0.04,
-            tax_vision: 0.02,
-            move_cost: 0.01,
+            // See the break-even note above before touching these. `tax_vision`
+            // is multiplied by a trait ranging to 8.0, so it is worth ~8x its
+            // face value relative to the 0..1 traits.
+            base_upkeep: 0.010,
+            tax_speed: 0.020,
+            tax_strength: 0.010,
+            tax_armor: 0.010,
+            tax_vision: 0.005,
+            move_cost: 0.005,
 
             attack_cost: 0.5,
             attack_damage: 4.0,
-            kill_energy_frac: 0.5,
+            kill_energy_frac: 0.3,
 
-            max_energy_per_size: 100.0,
+            max_energy_per_size: 30.0,
             growth_threshold: 0.8,
             growth_rate: 0.002,
             shrink_rate: 0.004,
@@ -575,7 +673,7 @@ impl Default for Config {
             food_patch_radius: 6.0,
             food_patch_max: 200.0,
             food_regrow: 0.002,
-            harvest_rate: 1.0,
+            harvest_rate: 2.0,
         }
     }
 }
@@ -584,7 +682,7 @@ impl Default for Config {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `cargo test -p sim`
-Expected: PASS, 11 tests.
+Expected: PASS. `a_mean_forager_turns_a_profit_on_a_round_trip` is the one to watch — it is a cheap arithmetic stand-in for Task 20's expensive simulated forager test, and it fails first if you retune the taxes carelessly.
 
 - [ ] **Step 5: Commit**
 
@@ -1189,8 +1287,14 @@ use serde::{Deserialize, Serialize};
 
 /// Legal `(min, max)` for each trait, in `Traits::as_array` order. Mutation is
 /// clamped to these, so no lineage can evolve a NaN or an infinite lifespan.
+///
+/// **`max_speed`'s upper bound of 1.0 is load-bearing.** `apply_movement` only
+/// collision-checks the destination cell, not the cells swept through on the
+/// way. At up to one cell per tick an ant cannot skip over a wall. Raise this
+/// bound and ants will tunnel through stone; you would need a swept collision
+/// check first.
 pub const TRAIT_RANGES: [(f32, f32); 8] = [
-    (0.05, 1.00),      // max_speed, cells per tick
+    (0.05, 1.00),      // max_speed, cells per tick — see note above
     (0.00, 1.00),      // strength
     (0.00, 1.00),      // armor, fraction of damage negated
     (1.00, 8.00),      // vision, whisker sample distance in cells
@@ -1722,8 +1826,13 @@ impl Ants {
             self.id.last().map_or(true, |&last| s.id > last),
             "ant ids must be pushed in increasing order"
         );
-        // Seeding from (id, birth_tick) makes each ant's stream independent of
-        // how many threads touched it.
+        // Reserved, and currently unread. Every ant carries a private stream
+        // seeded from (id, birth_tick) so that any future *stochastic* ant
+        // behaviour — noisy sensors, probabilistic actions — stays independent
+        // of thread scheduling. Today the think phase is fully deterministic
+        // and all randomness lives in the serial reproduce phase, drawing from
+        // `World::rng`. Keep this field: adding it later would change every
+        // ant's stream and invalidate the golden master.
         self.rng.push(Pcg32::new(s.id, s.birth_tick.wrapping_add(1)));
         self.id.push(s.id);
         self.colony.push(s.colony);
@@ -1741,8 +1850,22 @@ impl Ants {
         self.alive.push(true);
     }
 
+    /// Floored cell.
+    ///
+    /// The upper bound is guaranteed by `apply_movement`, not re-checked here:
+    /// a move that would leave the grid is rejected (`Grid::is_stone` reports
+    /// out-of-bounds as stone), and a move that stays within the current cell
+    /// cannot cross `width`. `World`'s `every_ant_stays_on_the_map` test pins
+    /// that invariant. The `debug_assert` catches a non-finite position, which
+    /// would otherwise cast to 0 and silently teleport the ant to the corner.
     #[inline]
     pub fn cell(&self, i: usize) -> (u16, u16) {
+        debug_assert!(
+            self.x[i].is_finite() && self.y[i].is_finite(),
+            "ant {i} has a non-finite position: ({}, {})",
+            self.x[i],
+            self.y[i]
+        );
         (self.x[i].max(0.0) as u16, self.y[i].max(0.0) as u16)
     }
 
@@ -2143,7 +2266,10 @@ There is deliberately **no homing compass input.** The nest emits colony scent, 
   - `pub const WHISKER_ANGLES: [f32; 5] = [-1.2, -0.6, 0.0, 0.6, 1.2];`
   - `pub const CHANNELS_PER_WHISKER: usize = 6;`
   - `pub const NEIGHBOUR_RADIUS: i32 = 2;`
+  - `pub fn squash_phero(v: f32, log_div: f32) -> f32` — logarithmic, monotone, non-saturating
   - `pub fn sense(i: usize, ants: &Ants, grid: &Grid, phero: &Pheromones, spatial: &Spatial, cfg: &Config) -> [f32; N_INPUTS]`
+
+**Why the pheromone sensor is logarithmic, not `tanh`.** A nest tile emits 50 scent per tick against an evaporation of 0.999, so its equilibrium value is in the tens of thousands, while a faint trail twenty cells away is order 1. A `tanh(0.1 * v)` squash returns `1.0` for anything above about 50 — meaning the entire neighbourhood of the nest reads as a flat, saturated `1.0` with **zero gradient**. An ant standing in it would be blind to the very signal it is supposed to climb home on. `ln(1 + v) / log_div` stays monotone and discriminable across four orders of magnitude, and `ln(1 + 0) = 0` keeps the empty case at exactly zero.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2327,6 +2453,45 @@ mod tests {
         a.carrying[0] = a.genome[0].traits.carry_capacity;
         assert_eq!(sense(0, &a, &g, &p, &s, &c)[IN_PROPRIO + 2], 1.0);
     }
+
+    #[test]
+    fn squash_phero_maps_nothing_to_zero() {
+        assert_eq!(squash_phero(0.0, 12.0), 0.0);
+    }
+
+    #[test]
+    fn squash_phero_stays_in_range_for_absurd_inputs() {
+        for v in [0.0, 1.0, 1e3, 1e6, 1e30] {
+            let s = squash_phero(v, 12.0);
+            assert!((0.0..=1.0).contains(&s), "{v} -> {s}");
+        }
+    }
+
+    #[test]
+    fn squash_phero_stays_discriminable_across_four_decades() {
+        // This is the property that makes homing possible. A tanh squash would
+        // return 1.0 for every one of these, and the ant would see no gradient.
+        let d = 12.0;
+        let samples: Vec<f32> = [1.0, 10.0, 100.0, 1_000.0, 10_000.0]
+            .iter()
+            .map(|v| squash_phero(*v, d))
+            .collect();
+        for w in samples.windows(2) {
+            assert!(w[1] - w[0] > 0.05, "adjacent decades too close: {w:?}");
+        }
+        assert!(*samples.last().unwrap() < 1.0, "saturated at the top decade");
+    }
+
+    #[test]
+    fn a_stronger_scent_always_reads_higher() {
+        let d = 12.0;
+        let mut prev = -1.0;
+        for v in [0.0, 0.5, 2.0, 50.0, 5_000.0, 50_000.0] {
+            let s = squash_phero(v, d);
+            assert!(s > prev, "not monotone at {v}");
+            prev = s;
+        }
+    }
 }
 ```
 
@@ -2372,12 +2537,16 @@ pub const CH_BLOCKED: usize = 5;
 pub const NEIGHBOUR_RADIUS: i32 = 2;
 /// Count at which the friend/foe inputs saturate.
 const CROWD_SATURATION: f32 = 8.0;
-/// Pheromone magnitudes are unbounded; squash them into [0,1).
-const PHERO_SCALE: f32 = 0.1;
 
+/// Compress an unbounded pheromone magnitude into `[0, 1]`.
+///
+/// Logarithmic, deliberately. Scent near a nest is ~10^4; a faint trail is
+/// ~10^0. A `tanh` squash saturates at 1.0 across the whole nest neighbourhood,
+/// flattening the gradient an ant must climb to get home. `ln` keeps every
+/// decade discriminable, and `ln(1 + 0) == 0` pins the empty case to zero.
 #[inline]
-fn squash(v: f32) -> f32 {
-    (v * PHERO_SCALE).tanh()
+pub fn squash_phero(v: f32, log_div: f32) -> f32 {
+    ((v.max(0.0) + 1.0).ln() / log_div).min(1.0)
 }
 
 /// Build one ant's sensory vector. **Read-only by contract** — this runs in the
@@ -2411,11 +2580,12 @@ pub fn sense(
         }
         let c = grid.idx_clamped(ix, iy);
         let (own, foe) = phero.scent_for(c, colony);
+        let d = cfg.phero_log_div;
         inputs[base + CH_FOOD] = (grid.food[c] / cfg.food_patch_max).min(1.0);
-        inputs[base + CH_FOOD_PHERO] = squash(phero.food[c]);
-        inputs[base + CH_ALARM] = squash(phero.alarm[c]);
-        inputs[base + CH_OWN_SCENT] = squash(own);
-        inputs[base + CH_FOE_SCENT] = squash(foe);
+        inputs[base + CH_FOOD_PHERO] = squash_phero(phero.food[c], d);
+        inputs[base + CH_ALARM] = squash_phero(phero.alarm[c], d);
+        inputs[base + CH_OWN_SCENT] = squash_phero(own, d);
+        inputs[base + CH_FOE_SCENT] = squash_phero(foe, d);
         inputs[base + CH_BLOCKED] = if grid.stone[c] { 1.0 } else { 0.0 };
     }
 
@@ -2423,8 +2593,8 @@ pub fn sense(
     let (cx, cy) = ants.cell(i);
     let here = grid.idx(cx, cy);
     inputs[IN_UNDERFOOT] = (grid.food[here] / cfg.food_patch_max).min(1.0);
-    inputs[IN_UNDERFOOT + 1] = squash(phero.food[here]);
-    inputs[IN_UNDERFOOT + 2] = squash(phero.alarm[here]);
+    inputs[IN_UNDERFOOT + 1] = squash_phero(phero.food[here], cfg.phero_log_div);
+    inputs[IN_UNDERFOOT + 2] = squash_phero(phero.alarm[here], cfg.phero_log_div);
 
     // --- Crowding ---
     let (friends, foes) =
@@ -2685,7 +2855,7 @@ Fitness is food delivered. It appears here and nowhere else.
 - Consumes: `Ants`, `Genome`, `Pcg32`, `Config`.
 - Produces:
   - `pub const PARENT_EPS: f32 = 1.0;`
-  - `pub struct ColonyState { pub id: u8, pub store: f32, pub nest_tiles: Vec<usize>, pub nest_center: (f32, f32), pub births: u64, pub deaths: u64, pub hall_of_fame: Vec<(f32, Genome)>, pub next_lineage_hint: u32 }` (`Clone`, `Serialize`, `Deserialize`)
+  - `pub struct ColonyState { pub id: u8, pub store: f32, pub nest_tiles: Vec<usize>, pub nest_center: (f32, f32), pub births: u64, pub deaths: u64, pub floor_spawns: u64, pub last_floor_spawn: u64, pub hall_of_fame: Vec<(f32, Genome)>, pub next_lineage_hint: u32 }` (`Clone`, `Serialize`, `Deserialize`)
   - `ColonyState::new(id: u8) -> ColonyState`
   - `ColonyState::record_death(&mut self, fitness: f32, genome: &Genome, cap: usize)`
   - `ColonyState::select_parent(&self, ants: &Ants, rng: &mut Pcg32) -> Option<usize>`
@@ -2846,6 +3016,12 @@ pub struct ColonyState {
     pub nest_center: (f32, f32),
     pub births: u64,
     pub deaths: u64,
+    /// Ants conjured by the extinction floor, free of charge. Surfaced in
+    /// `ColonyStats` because this is the one place the simulation cheats:
+    /// a colony propped up by the floor is not a colony that is winning, and
+    /// the operator must be able to see the difference.
+    pub floor_spawns: u64,
+    pub last_floor_spawn: u64,
     /// Best genomes ever seen, by food delivered, sorted descending. Used only
     /// by the extinction floor. A research-tool affordance, not biology.
     pub hall_of_fame: Vec<(f32, Genome)>,
@@ -2861,6 +3037,8 @@ impl ColonyState {
             nest_center: (0.0, 0.0),
             births: 0,
             deaths: 0,
+            floor_spawns: 0,
+            last_floor_spawn: 0,
             hall_of_fame: Vec::new(),
             next_lineage_hint: 0,
         }
@@ -3476,6 +3654,49 @@ Append to the `mod tests` block in `crates/sim/src/apply.rs`:
     }
 
     #[test]
+    fn only_the_killing_blow_scavenges_so_a_mob_cannot_mint_energy() {
+        // Three attackers, one nearly-dead victim. Because deaths are flagged
+        // by the sweep and not by combat, the corpse stays a legal target all
+        // tick. Exactly one attacker may collect the bounty.
+        let mut f = fixture(&[(8.5, 8.5, 1), (9.5, 8.5, 1), (8.5, 9.5, 1), (9.5, 9.5, 2)]);
+        f.ants.energy[3] = 0.01;
+        for a in 0..3 {
+            f.ants.energy[a] = 10.0;
+            f.ants.genome[a].traits.strength = 1.0;
+        }
+        f.ants.genome[3].traits.armor = 0.0;
+        f.rebuild();
+
+        let i = Intent { attack: true, ..intent() };
+        for a in 0..3 {
+            apply_combat(a, &i, &mut f.ants, &mut f.ctx());
+        }
+
+        let bounty = f.cfg.kill_energy_frac * f.cfg.max_energy_per_size * f.ants.size[3];
+        let gained: f32 = (0..3)
+            .map(|a| f.ants.energy[a] - (10.0 - f.cfg.attack_cost))
+            .sum();
+        assert!(
+            (gained - bounty).abs() < 1e-3,
+            "mob scavenged {gained} from a corpse worth {bounty}: energy was created"
+        );
+    }
+
+    #[test]
+    fn hitting_an_already_dead_victim_yields_nothing() {
+        let mut f = fixture(&[(8.5, 8.5, 1), (9.5, 8.5, 2)]);
+        f.ants.energy[0] = 10.0;
+        f.ants.energy[1] = -5.0; // already below zero, sweep has not run
+        f.rebuild();
+        let i = Intent { attack: true, ..intent() };
+        apply_combat(0, &i, &mut f.ants, &mut f.ctx());
+        assert!(
+            (f.ants.energy[0] - (10.0 - f.cfg.attack_cost)).abs() < 1e-4,
+            "attacker gained energy from a corpse it did not kill"
+        );
+    }
+
+    #[test]
     fn an_exhausted_ant_cannot_afford_to_attack() {
         let mut f = fixture(&[(8.5, 8.5, 1), (9.5, 8.5, 2)]);
         f.ants.energy[0] = f.cfg.attack_cost * 0.5;
@@ -3606,6 +3827,7 @@ pub fn apply_combat(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyC
         * (1.0 - ants.genome[v].traits.armor);
 
     ants.energy[i] -= ctx.cfg.attack_cost;
+    let victim_energy_before = ants.energy[v];
     ants.energy[v] -= damage;
 
     // Alarm is leaked involuntarily by both parties, as in real ants.
@@ -3615,7 +3837,13 @@ pub fn apply_combat(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyC
     ctx.phero.deposit_alarm(here, ctx.cfg.alarm_emission);
     ctx.phero.deposit_alarm(there, ctx.cfg.alarm_emission);
 
-    if ants.energy[v] <= 0.0 {
+    // Only the blow that *crosses* zero scavenges. Deaths are flagged by the
+    // end-of-tick sweep, so a victim already at or below zero stays a valid
+    // target for the rest of the serial phase — without this guard, every ant
+    // in a mob would "kill" the same corpse and each mint a full kill bonus
+    // from nothing.
+    let killing_blow = victim_energy_before > 0.0 && ants.energy[v] <= 0.0;
+    if killing_blow {
         let scavenged = ctx.cfg.kill_energy_frac * ctx.cfg.max_energy_per_size * ants.size[v];
         let max_e = ants.genome[i].max_energy(ctx.cfg, ants.size[i]);
         ants.energy[i] = (ants.energy[i] + scavenged).min(max_e);
@@ -3830,25 +4058,44 @@ mod tests {
     }
 
     #[test]
-    fn a_colony_below_the_floor_gets_free_ants_from_its_archive() {
+    fn a_colony_below_the_floor_gets_one_free_ant_from_its_archive() {
         let c = Config { extinction_floor: 3, ..cfg() };
         let (mut ants, mut cols) = setup(&c, &[(0, 5.0)]);
         cols[0].store = 0.0;
         cols[0].record_death(9.0, &Genome::random(&mut Pcg32::new(9, 9)), 5);
         let mut id = 1;
         reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(3, 3));
-        assert_eq!(ants.population(0), 3, "topped up to the floor");
+        assert_eq!(ants.population(0), 2, "one free ant, not a full top-up");
         assert_eq!(cols[0].store, 0.0, "free ants cost nothing");
+        assert_eq!(cols[0].floor_spawns, 1, "the cheat is counted");
     }
 
     #[test]
-    fn the_floor_falls_back_to_random_genomes_when_the_archive_is_empty() {
+    fn free_ants_are_rate_limited_to_one_per_interval() {
+        let c = Config { extinction_floor: 5, floor_respawn_interval: 100, ..cfg() };
+        let (mut ants, mut cols) = setup(&c, &[]);
+        let mut id = 0;
+        let mut rng = Pcg32::new(3, 3);
+
+        // Ticks 0..99: only the very first is eligible.
+        for t in 0..100 {
+            reproduce(&mut ants, &mut cols, &c, t, &mut id, &mut rng);
+        }
+        assert_eq!(cols[0].floor_spawns, 1, "the interval was not honoured");
+
+        // Tick 100 clears the interval.
+        reproduce(&mut ants, &mut cols, &c, 100, &mut id, &mut rng);
+        assert_eq!(cols[0].floor_spawns, 2);
+    }
+
+    #[test]
+    fn the_floor_falls_back_to_a_random_genome_when_the_archive_is_empty() {
         let c = Config { extinction_floor: 2, ..cfg() };
         let (mut ants, mut cols) = setup(&c, &[]);
         let mut id = 0;
         reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(4, 4));
-        assert_eq!(ants.population(0), 2);
-        assert_eq!(ants.population(1), 2);
+        assert_eq!(ants.population(0), 1);
+        assert_eq!(ants.population(1), 1);
     }
 
     #[test]
@@ -3858,6 +4105,19 @@ mod tests {
         let mut id = 2;
         reproduce(&mut ants, &mut cols, &c, 0, &mut id, &mut Pcg32::new(5, 5));
         assert_eq!(ants.len(), 2);
+        assert_eq!(cols[0].floor_spawns, 0);
+    }
+
+    #[test]
+    fn a_colony_can_never_be_permanently_extinct() {
+        let c = Config { extinction_floor: 3, floor_respawn_interval: 10, ..cfg() };
+        let (mut ants, mut cols) = setup(&c, &[]);
+        let mut id = 0;
+        let mut rng = Pcg32::new(8, 8);
+        for t in 0..100 {
+            reproduce(&mut ants, &mut cols, &c, t, &mut id, &mut rng);
+        }
+        assert_eq!(ants.population(0), 3, "should have trickled back up to the floor");
     }
 
     #[test]
@@ -3922,14 +4182,25 @@ pub fn reproduce(
     for ci in 0..colonies.len() {
         let cid = colonies[ci].id;
 
-        // --- Extinction floor: free ants from the hall of fame. ---
-        while ants.population(cid) < cfg.extinction_floor {
+        // --- Extinction floor: at most ONE free ant per interval. ---
+        //
+        // Rate-limited on purpose. Topping a colony straight back up to the
+        // floor in the same tick its ants die turns a besieged nest into an
+        // energy fountain: an enemy camped on it kills and scavenges an endless
+        // stream of free bodies. A slow trickle lets a colony rebuild without
+        // subsidising its attacker.
+        let below_floor = ants.population(cid) < cfg.extinction_floor;
+        let interval_elapsed =
+            tick >= colonies[ci].last_floor_spawn.saturating_add(cfg.floor_respawn_interval);
+        if below_floor && (interval_elapsed || colonies[ci].floor_spawns == 0) {
             let genome = match colonies[ci].archive_parent(rng) {
                 Some(g) => g.mutated(cfg, rng),
                 None => Genome::random(rng),
             };
             let lineage = colonies[ci].next_lineage_hint.saturating_add(1);
             spawn_into(ants, &colonies[ci], cid, genome, lineage, cfg, tick, next_id, rng);
+            colonies[ci].floor_spawns += 1;
+            colonies[ci].last_floor_spawn = tick;
         }
 
         // --- Paid births from the food store. ---
@@ -4149,6 +4420,31 @@ mod tests {
         assert!(frac > 0.01, "no terrain variety: {frac}");
         assert!(frac < 0.30, "map is mostly wall: {frac}");
     }
+
+    #[test]
+    fn stone_coverage_is_independent_of_map_size() {
+        // A fixed blob count would bury the small worlds the tests use while
+        // barely speckling the real 512x512 map.
+        let frac_at = |side: u16| {
+            let c = Config { width: side, height: side, num_colonies: 2, ..cfg() };
+            let (grid, _) = generate(&c, &mut Pcg32::new(1, 1));
+            grid.stone.iter().filter(|s| **s).count() as f32 / grid.stone.len() as f32
+        };
+        for side in [64u16, 128, 256] {
+            let f = frac_at(side);
+            assert!(
+                (0.01..0.30).contains(&f),
+                "{side}x{side} map has {f} stone coverage, outside the workable band"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tiny_test_world_still_gets_at_least_one_blob() {
+        let c = Config { width: 32, height: 32, num_colonies: 1, ..cfg() };
+        let (grid, _) = generate(&c, &mut Pcg32::new(1, 1));
+        assert!(grid.stone.iter().any(|s| *s));
+    }
 }
 ```
 
@@ -4174,11 +4470,29 @@ use crate::rng::Pcg32;
 pub const NEST_RADIUS: i32 = 1;
 /// Each colony gets one guaranteed food patch this far from its nest, so no
 /// colony starts in a barren corner. The rest are scattered.
-pub const SEED_PATCH_DISTANCE: f32 = 25.0;
+///
+/// Kept short deliberately: the round trip must pay for itself at mean traits
+/// (see the break-even note on `Config`), and the nest scent gradient has to
+/// still be readable at this range (see `tests/gradient.rs`).
+pub const SEED_PATCH_DISTANCE: f32 = 12.0;
 /// Colonies are placed on a circle at this fraction of the map's half-width.
 const NEST_RING_FRAC: f32 = 0.72;
-const STONE_BLOB_COUNT: u32 = 60;
-const STONE_BLOB_RADIUS: f32 = 7.0;
+
+/// How many stone blobs to stamp for a given map, from a target coverage.
+///
+/// A fixed blob *count* does not survive changing the map size: 60 blobs is 3%
+/// of a 512x512 map and more than 100% of the 48x48 worlds the tests use, which
+/// would bury every test colony in solid rock and make the behavioural tests
+/// fail for terrain reasons while pointing at the economy.
+///
+/// Mean blob radius is `radius * (0.4 + E[U(0,1)]) = 0.9 * radius`, so mean
+/// area is `PI * (0.9r)^2 ~= 2.54 r^2`. Overlap means realised coverage lands a
+/// little under the target, which is fine.
+fn stone_blob_count(cfg: &Config) -> u32 {
+    let mean_blob_area = 2.54 * cfg.stone_blob_radius * cfg.stone_blob_radius;
+    let target_cells = cfg.stone_density * cfg.cell_count() as f32;
+    ((target_cells / mean_blob_area).round() as u32).max(1)
+}
 
 pub fn generate(cfg: &Config, rng: &mut Pcg32) -> (Grid, Vec<ColonyState>) {
     let mut grid = Grid::new(cfg);
@@ -4187,10 +4501,10 @@ pub fn generate(cfg: &Config, rng: &mut Pcg32) -> (Grid, Vec<ColonyState>) {
     let (cxm, cym) = (w * 0.5, h * 0.5);
 
     // --- Stone blobs: chokepoints, so different regions reward different bets.
-    for _ in 0..STONE_BLOB_COUNT {
+    for _ in 0..stone_blob_count(cfg) {
         let bx = rng.next_f32() * w;
         let by = rng.next_f32() * h;
-        let r = STONE_BLOB_RADIUS * (0.4 + rng.next_f32());
+        let r = cfg.stone_blob_radius * (0.4 + rng.next_f32());
         stamp(&mut grid, bx, by, r, |g, i| g.stone[i] = true);
     }
 
@@ -4275,7 +4589,7 @@ fn stamp(grid: &mut Grid, cx: f32, cy: f32, r: f32, mut f: impl FnMut(&mut Grid,
 Run: `cargo test -p sim`
 Expected: PASS, 145 tests.
 
-If `the_map_has_some_stone_but_is_not_a_wall` fails, tune `STONE_BLOB_COUNT` / `STONE_BLOB_RADIUS` until the stone fraction lands between 1% and 30% at 512×512, then re-run.
+If the stone-coverage tests fail, tune `Config::stone_density` (and, if blobs look wrong, `stone_blob_radius`) rather than the derived blob count. Realised coverage runs slightly under `stone_density` because blobs overlap; at the default 0.06 expect roughly 5–6%.
 
 - [ ] **Step 5: Commit**
 
@@ -4306,7 +4620,7 @@ Two support changes ride along, both discovered by this task's needs:
 - Produces:
   - `Grid { .., pub fertility: Vec<f32> }` and `Grid::regrow(&mut self, rate: f32)`
   - `impl Default for Spatial` and `Spatial::resize(&mut self, cfg: &Config)`
-  - `pub struct ColonyStats { pub id: u8, pub population: u32, pub store: f32, pub births: u64, pub deaths: u64, pub mean_size: f32, pub mean_lineage: f32, pub food_delivered: f32 }` (`Clone`, `Debug`, `Serialize`)
+  - `pub struct ColonyStats { pub id: u8, pub population: u32, pub store: f32, pub births: u64, pub deaths: u64, pub floor_spawns: u64, pub mean_size: f32, pub mean_lineage: f32, pub food_delivered: f32 }` (`Clone`, `Debug`, `Serialize`)
   - `pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats>`
   - `pub struct World { pub cfg: Config, pub tick_count: u64, pub grid: Grid, pub phero: Pheromones, pub ants: Ants, pub colonies: Vec<ColonyState>, pub rng: Pcg32, pub next_id: u64 }` (`Clone`, `Serialize`, `Deserialize`)
   - `World::new(cfg: &Config, seed: u64) -> World`
@@ -4458,6 +4772,14 @@ mod tests {
         let cols: Vec<ColonyState> = (0..1).map(ColonyState::new).collect();
         assert_eq!(colony_stats(&ants, &cols)[0].food_delivered, 12.0);
     }
+
+    #[test]
+    fn floor_spawns_are_reported_so_life_support_is_visible() {
+        let ants = ants_with(&[(0, 1.0, 0, 0.0)]);
+        let mut cols: Vec<ColonyState> = (0..1).map(ColonyState::new).collect();
+        cols[0].floor_spawns = 17;
+        assert_eq!(colony_stats(&ants, &cols)[0].floor_spawns, 17);
+    }
 }
 ```
 
@@ -4479,6 +4801,10 @@ pub struct ColonyStats {
     pub store: f32,
     pub births: u64,
     pub deaths: u64,
+    /// Free ants granted by the extinction floor. A colony whose population is
+    /// held up by this number is on life support, not thriving. Reported so the
+    /// simulation never silently flatters a losing colony.
+    pub floor_spawns: u64,
     pub mean_size: f32,
     pub mean_lineage: f32,
     pub food_delivered: f32,
@@ -4505,6 +4831,7 @@ pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
                 store: c.store,
                 births: c.births,
                 deaths: c.deaths,
+                floor_spawns: c.floor_spawns,
                 mean_size: if population == 0 { 0.0 } else { size_sum / n },
                 mean_lineage: if population == 0 { 0.0 } else { lineage_sum / n },
                 food_delivered: delivered,
@@ -4600,12 +4927,24 @@ mod tests {
     }
 
     #[test]
-    fn no_colony_ever_falls_below_the_extinction_floor() {
+    fn no_colony_ever_goes_permanently_extinct() {
+        // The floor is rate-limited, so a colony CAN dip below it — even to
+        // zero — for up to `floor_respawn_interval` ticks. What it may not do
+        // is stay there.
         let mut w = World::new(&small(), 7);
-        for _ in 0..2000 {
+        let mut ticks_at_zero = vec![0u64; w.cfg.num_colonies as usize];
+        for _ in 0..5000 {
             w.tick();
-            for c in &w.colonies {
-                assert!(w.ants.population(c.id) >= w.cfg.extinction_floor);
+            for id in 0..w.cfg.num_colonies {
+                if w.ants.population(id) == 0 {
+                    ticks_at_zero[id as usize] += 1;
+                } else {
+                    ticks_at_zero[id as usize] = 0;
+                }
+                assert!(
+                    ticks_at_zero[id as usize] <= w.cfg.floor_respawn_interval + 1,
+                    "colony {id} stayed extinct past the respawn interval"
+                );
             }
         }
     }
@@ -4880,12 +5219,12 @@ Note the import list omits `NEWBORN_ENERGY_FRAC` — founders start full, newbor
 - [ ] **Step 9: Run the full suite**
 
 Run: `cargo test -p sim`
-Expected: PASS, 163 tests. `no_colony_ever_falls_below_the_extinction_floor` and `no_ant_ever_stands_on_stone` are the two that would expose a broken tick.
+Expected: PASS. `no_colony_ever_goes_permanently_extinct` and `no_ant_ever_stands_on_stone` are the two that would expose a broken tick.
 
 - [ ] **Step 10: Check it is not pathologically slow before moving on**
 
 ```bash
-cargo test -p sim --release -- --nocapture no_colony_ever_falls_below
+cargo test -p sim --release -- --nocapture no_colony_ever_goes_permanently_extinct
 ```
 
 Expected: completes in a few seconds. If a 64×64 world with 20 ants takes minutes, stop and profile — something is quadratic.
@@ -5109,6 +5448,17 @@ Create `crates/sim/tests/golden.rs`:
 //!
 //! Then review the diff on `golden_master.bin` in your commit — a changed
 //! fixture is a claim that you meant to change the simulation.
+//!
+//! # This fixture pins the platform, not just the code
+//!
+//! `tanh`, `ln`, `sin`, and `cos` are libm calls, and their final-ULP results
+//! differ across operating systems and architectures. The determinism tests
+//! guarantee that a given *machine* reproduces itself across thread counts;
+//! nothing guarantees an aarch64 Mac and an x86_64 Linux box agree bit for bit.
+//!
+//! So: **regenerate this fixture when you move to a new platform**, and do not
+//! read a failure on a fresh CI runner as a physics regression until you have
+//! confirmed the same binary passes on the machine that generated it.
 
 use sim::config::Config;
 use sim::snapshot::{load, save};
@@ -5180,15 +5530,132 @@ So we split the question in two, and each half gets a test that can actually be 
 2. **Can a genome express it?** Run a tiny seeded hill-climber offline, once, and check the winner into the repo as `known_good_forager.bin`. If the hill-climber cannot find a forager, that is itself the diagnostic: the policy may not be expressible, or the taxes may be too steep. Either way you learn it in minutes rather than after a week of watching dots.
 
 **Files:**
+- Create: `crates/sim/tests/gradient.rs`
 - Create: `crates/sim/tests/behavior.rs`
-- Create: `crates/sim/tests/tools/mod.rs` (the hill-climber, `#[ignore]`d)
+- Create: `crates/sim/tests/known_good.rs` (the hill-climber, `#[ignore]`d)
 - Create (generated): `crates/sim/tests/known_good_forager.bin`
 
 **Interfaces:**
-- Consumes: `World`, `apply_*`, `Genome`, `Intent`.
+- Consumes: `World`, `apply_*`, `Genome`, `Intent`, `sense::squash_phero`.
 - Produces: `crates/sim/tests/known_good_forager.bin`, loadable via `bincode::deserialize::<Genome>`.
 
-- [ ] **Step 1: Write the "world is winnable" test with a scripted controller**
+- [ ] **Step 1: Prove an ant can actually read the way home**
+
+Before asking whether a forager can profit, check that the sensory signal it must follow exists at the distance it must follow it from. The nest scent gradient is the *only* homing cue in the design — there is no compass input — so if it is flat or saturated at foraging range, no genome can ever learn to return, and every downstream test fails for a reason that looks like "evolution didn't work."
+
+Create `crates/sim/tests/gradient.rs`:
+
+```rust
+//! Diagnostics for the one signal homing depends on: the nest scent gradient.
+//!
+//! If these fail, no amount of evolution produces a forager, because the
+//! information an ant would need is not in its inputs.
+
+use sim::config::Config;
+use sim::pheromone::Pheromones;
+use sim::sense::squash_phero;
+
+/// Emit nest scent from a 3x3 block at the centre, let it reach equilibrium,
+/// and report what an ant's sensor would read at each distance.
+fn equilibrium_profile(cfg: &Config, ticks: u32) -> Vec<(i32, f32)> {
+    let mut p = Pheromones::new(cfg);
+    let (w, h) = (cfg.width as i32, cfg.height as i32);
+    let (cx, cy) = (w / 2, h / 2);
+    let idx = |x: i32, y: i32| (y * w + x) as usize;
+
+    for _ in 0..ticks {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                p.deposit_scent(idx(cx + dx, cy + dy), cfg.nest_scent_emission, 0);
+            }
+        }
+        p.step(cfg);
+    }
+
+    [2, 4, 6, 9, 12, 16, 20]
+        .iter()
+        .map(|&d| {
+            let (raw, _) = p.scent_for(idx(cx + d, cy), 0);
+            (d, squash_phero(raw, cfg.phero_log_div))
+        })
+        .collect()
+}
+
+fn cfg() -> Config {
+    Config { width: 96, height: 96, ..Config::default() }
+}
+
+#[test]
+fn the_nest_gradient_decreases_monotonically_with_distance() {
+    let profile = equilibrium_profile(&cfg(), 3_000);
+    for w in profile.windows(2) {
+        assert!(
+            w[0].1 > w[1].1,
+            "scent is not monotonically decreasing: {:?} then {:?}\nfull profile: {profile:?}",
+            w[0],
+            w[1]
+        );
+    }
+}
+
+#[test]
+fn the_nest_gradient_is_not_saturated_near_the_nest() {
+    // The failure mode a tanh squash produces: everything within ~20 cells of
+    // the nest reads exactly 1.0, so the ant standing in it is gradient-blind.
+    let profile = equilibrium_profile(&cfg(), 3_000);
+    for (d, v) in &profile {
+        assert!(*v < 1.0, "sensor saturated at distance {d}: {v}\nprofile: {profile:?}");
+    }
+}
+
+#[test]
+fn the_nest_gradient_is_discriminable_at_foraging_range() {
+    // An ant's whiskers sample a few cells apart. If two adjacent sample points
+    // differ by less than a whisker's worth of f32 noise, the gradient carries
+    // no usable information. Checks specifically around SEED_PATCH_DISTANCE.
+    let profile = equilibrium_profile(&cfg(), 3_000);
+    let at = |d: i32| profile.iter().find(|(x, _)| *x == d).unwrap().1;
+    let near_far = at(9) - at(16);
+    assert!(
+        near_far > 0.01,
+        "gradient between 9 and 16 cells is only {near_far}; an ant at foraging \
+         range cannot tell which way is home. Lower scent_diffusion, raise \
+         scent_evaporation's decay, or shorten SEED_PATCH_DISTANCE.\nprofile: {profile:?}"
+    );
+}
+
+#[test]
+fn scent_reaches_beyond_the_guaranteed_food_patch() {
+    // SEED_PATCH_DISTANCE is 12. A laden ant standing on that patch must be
+    // able to sense home from where it stands.
+    let profile = equilibrium_profile(&cfg(), 3_000);
+    let at_patch = profile.iter().find(|(d, _)| *d == 12).unwrap().1;
+    assert!(at_patch > 0.0, "no scent at all at the food patch: an ant there is lost");
+}
+```
+
+- [ ] **Step 2: Run the gradient diagnostics**
+
+Run: `cargo test -p sim --release --test gradient`
+Expected: PASS, 4 tests.
+
+For reference, the equilibrium profile these constants produce (96×96, 3,000 ticks, a 3×3 nest emitting 50/tile/tick, `scent_diffusion` 0.06, `scent_evaporation` 0.999, `phero_log_div` 12.0), computed ahead of time:
+
+| distance | raw scent | `squash_phero` | old `tanh(0.1·v)` |
+| --- | --- | --- | --- |
+| 2 | 4243.67 | 0.696 | 1.00000000 |
+| 4 | 1933.05 | 0.631 | 1.00000000 |
+| 6 | 955.68 | 0.572 | 1.00000000 |
+| 9 | 355.40 | 0.490 | 1.00000000 |
+| 12 | 135.91 | 0.410 | 1.00000000 |
+| 16 | 37.44 | 0.304 | 0.99888092 |
+| 20 | 9.83 | 0.199 | 0.75456570 |
+
+The right-hand column is why this test exists. Under a `tanh` squash every distance from 2 to 12 cells reads as **exactly 1.0** — an ant anywhere in its own territory, including standing on the guaranteed food patch at distance 12, would sense a perfectly flat field and have no information about which way home is. Homing would not have been hard to evolve; it would have been impossible, and the symptom would have been "the ants just wander."
+
+**If `the_nest_gradient_is_discriminable_at_foraging_range` fails, stop and fix it before anything else.** The lever is the ratio of `scent_diffusion` to the scent's decay rate `1 - scent_evaporation`: their ratio sets the gradient's length scale. Raising `scent_diffusion` spreads the beacon farther but flattens it; lowering `scent_evaporation` sharpens it but shortens its reach. Print the profile (`--nocapture` and a `dbg!`) and tune until the values at 9 and 16 cells are clearly separated. This ratio is the single most important pheromone constant in the project, and it is why both fields are live-tunable in Plan 2.
+
+- [ ] **Step 3: Write the "world is winnable" test with a scripted controller**
 
 Create `crates/sim/tests/behavior.rs`:
 
@@ -5315,11 +5782,16 @@ fn a_colony_with_no_reachable_food_shrinks_to_the_extinction_floor() {
     for _ in 0..20_000 {
         w.tick();
     }
-    assert_eq!(
-        w.ants.population(0),
-        w.cfg.extinction_floor,
-        "starvation should have pruned the colony down to the floor, and no further"
+    // The floor trickles in one free ant per interval, and each starves. So the
+    // population hovers at or below the floor, never above it, and the colony
+    // is visibly on life support rather than thriving.
+    assert!(
+        w.ants.population(0) <= w.cfg.extinction_floor,
+        "starvation should have pruned the colony to the floor, got {}",
+        w.ants.population(0)
     );
+    assert!(w.colonies[0].floor_spawns > 0, "the floor should have been propping it up");
+    assert!(w.colonies[0].births == 0, "a starving colony must not afford paid births");
 }
 
 #[test]
@@ -5332,23 +5804,23 @@ fn a_random_colony_does_not_immediately_explode_in_population() {
 }
 ```
 
-- [ ] **Step 2: Run them**
+- [ ] **Step 4: Run them**
 
 Run: `cargo test -p sim --release --test behavior`
 Expected: PASS, 4 tests.
 
-If `a_scripted_forager_grows_the_colony_food_store` fails, **do not proceed to the hill-climber.** The economy is misconfigured. Raise `harvest_rate`, lower `base_upkeep`, or lower `move_cost` until a hand-written forager can turn a profit. There is no point asking evolution to solve a game that cannot be won.
+If `a_scripted_forager_grows_the_colony_food_store` fails, **do not proceed to the hill-climber.** The economy is misconfigured. Re-derive the break-even sum in `Config`'s doc comment with your current constants — most likely a tax coefficient dominates, as `tax_vision` once did. Raise `harvest_rate`, lower the taxes, or shorten `SEED_PATCH_DISTANCE` until a hand-written forager can turn a profit. There is no point asking evolution to solve a game that cannot be won.
 
-- [ ] **Step 3: Commit the behavioral tests**
+- [ ] **Step 5: Commit the behavioral tests**
 
 ```bash
-git add crates/sim/tests/behavior.rs
-git commit -m "test(sim): a scripted forager proves the economy is winnable"
+git add crates/sim/tests/gradient.rs crates/sim/tests/behavior.rs
+git commit -m "test(sim): gradient diagnostics and a scripted forager that profits"
 ```
 
-- [ ] **Step 4: Write the offline hill-climber as an ignored test**
+- [ ] **Step 6: Write the offline hill-climber as an ignored test**
 
-Create `crates/sim/tests/tools/mod.rs` and a thin `crates/sim/tests/tools.rs` that declares `mod tools;`? Simpler: put it in `crates/sim/tests/known_good.rs`:
+Create `crates/sim/tests/known_good.rs`:
 
 ```rust
 //! Searches for a genome that can forage, and checks it in as a fixture.
@@ -5423,7 +5895,7 @@ fn the_known_good_forager_still_forages() {
 }
 ```
 
-- [ ] **Step 5: Run the search and inspect the output**
+- [ ] **Step 7: Run the search and inspect the output**
 
 ```bash
 cargo test -p sim --release --test known_good -- --ignored --nocapture
@@ -5431,9 +5903,9 @@ cargo test -p sim --release --test known_good -- --ignored --nocapture
 
 Expected: printed `new best` lines with a rising score, ending well above zero, and a written fixture.
 
-**If the final score is 0.0**, that is a real finding, not a failing step. It means a mutation hill-climb over 300 generations cannot discover foraging from a random start. Record it, then try, in order: raise `mutation_rate`, lengthen the evaluation to 10,000 ticks, lower `food_evaporation` toward 0.99 so trails last, and shrink `SEED_PATCH_DISTANCE` in worldgen so food is closer. Note in the commit message what you changed and what the score became. This tuning loop **is** the project.
+**If the final score is 0.0**, that is a real finding, not a failing step. It means a mutation hill-climb over 300 generations cannot discover foraging from a random start. By this point Step 2 has proved the homing gradient is readable and Step 4 has proved a competent forager profits, so the world is sound and the problem is the search. Try, in order: raise `mutation_rate`, lengthen the evaluation to 10,000 ticks, and lower `food_evaporation` toward 0.99 so trails persist long enough to be worth following. Note in the commit message what you changed and what the score became. This tuning loop **is** the project.
 
-- [ ] **Step 6: Verify the guard test passes and commit**
+- [ ] **Step 8: Verify the guard test passes and commit**
 
 Run: `cargo test -p sim --release --test known_good`
 Expected: PASS (1 test; the search is ignored).
@@ -5521,7 +5993,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stdout = std::io::stdout();
     let mut out = std::io::BufWriter::new(stdout.lock());
-    writeln!(out, "tick,colony,population,store,births,deaths,mean_size,generation,food_delivered")?;
+    writeln!(
+        out,
+        "tick,colony,population,store,births,deaths,floor_spawns,mean_size,generation,food_delivered"
+    )?;
 
     for _ in 0..args.ticks {
         world.tick();
@@ -5529,9 +6004,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for s in world.stats() {
                 writeln!(
                     out,
-                    "{},{},{},{:.1},{},{},{:.3},{:.2},{:.1}",
+                    "{},{},{},{:.1},{},{},{},{:.3},{:.2},{:.1}",
                     world.tick_count, s.id, s.population, s.store, s.births, s.deaths,
-                    s.mean_size, s.mean_lineage, s.food_delivered
+                    s.floor_spawns, s.mean_size, s.mean_lineage, s.food_delivered
                 )?;
             }
             out.flush()?;
