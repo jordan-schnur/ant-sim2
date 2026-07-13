@@ -28,6 +28,27 @@ interface Anchor {
   colony: number | null;
 }
 
+/**
+ * World cell -> CSS pixel, matching the picker's inverse. The camera pans and
+ * zooms in *device* pixels (mouse coords are multiplied by `dpr` before
+ * `screenToWorld`), but world coordinates are plain cells: `worldToScreen`
+ * takes cells and returns device px. The overlay is positioned in CSS px, so
+ * the only `dpr` in the whole chain is the final divide. Feeding `dpr` into the
+ * world coordinate — as this once did — scales every label's position by `dpr`
+ * on retina, scattering them across the map.
+ */
+export function projectToCss(
+  camera: Camera,
+  wx: number,
+  wy: number,
+  viewW: number,
+  viewH: number,
+  dpr: number,
+): { left: number; top: number } {
+  const s = camera.worldToScreen(wx, wy, viewW, viewH);
+  return { left: s.x / dpr, top: s.y / dpr };
+}
+
 export class LabelOverlay {
   private root: HTMLElement;
   private nodes = new Map<string, HTMLElement>();
@@ -158,11 +179,9 @@ export class LabelOverlay {
     const placed: { l: number; t: number; r: number; b: number }[] = [];
 
     for (const a of anchors) {
-      const s = camera.worldToScreen(a.wx * dpr, a.wy * dpr, viewW, viewH);
-      // worldToScreen works in device px (the camera pans in device px); the
-      // overlay is CSS-positioned, so divide back down.
-      let left = s.x / dpr;
-      let top = s.y / dpr;
+      const p = projectToCss(camera, a.wx, a.wy, viewW, viewH, dpr);
+      let left = p.left;
+      let top = p.top;
       if (left < -80 || top < -40 || left > viewW / dpr + 80 || top > viewH / dpr + 40) {
         continue; // off-screen: skip, but keep the node for reuse next frame
       }
@@ -185,7 +204,7 @@ export class LabelOverlay {
         }
         if (box.r + wdt < viewW / dpr) left = hit.r + 2;
         else {
-          left = a.colony !== null ? s.x / dpr : left;
+          left = a.colony !== null ? p.left : left;
           top = hit.b + 2;
         }
       }

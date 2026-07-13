@@ -78,6 +78,26 @@ void main() {
     col = mix(col, colonyColor(t.b), 0.55);
   }
 
+  // Feature borders. Fill colour alone — dark food-green against grey stone
+  // against dim dirt — reads as mud at a glance. A dark rim wherever a food,
+  // stone, or nest patch abuts a different terrain type turns each patch into a
+  // distinct object, the way a legend separates regions on a map. Sampling is
+  // NEAREST and CLAMP_TO_EDGE, so neighbour reads are exact and the world's
+  // outer border never self-outlines.
+  vec2 tstep = 1.0 / vec2(textureSize(uTerrain, 0));
+  vec2 offs[4] = vec2[4](vec2(1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, -1.0));
+  float sFood  = step(0.12, t.r);
+  float sStone = step(0.5, t.g);
+  float sNest  = t.b < 0.999 ? 1.0 : 0.0;
+  float edge = 0.0;
+  for (int k = 0; k < 4; k++) {
+    vec4 tn = texture(uTerrain, vUv + offs[k] * tstep);
+    edge = max(edge, abs(sFood  - step(0.12, tn.r)));
+    edge = max(edge, abs(sStone - step(0.5, tn.g)));
+    edge = max(edge, abs(sNest  - (tn.b < 0.999 ? 1.0 : 0.0)));
+  }
+  col = mix(col, col * 0.28, edge);
+
   // Pheromones are additive: overlapping fields should read as overlapping,
   // not as whichever happened to be drawn last.
   if (uShowScent) col += colonyColor(p.a) * p.b * 0.55;
