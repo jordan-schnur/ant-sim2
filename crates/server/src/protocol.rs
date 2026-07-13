@@ -25,6 +25,8 @@ pub const TAG_ANT_DETAIL: u8 = 0x05;
 pub const TAG_ANT_GENOME: u8 = 0x06;
 pub const TAG_CONFIG: u8 = 0x07;
 pub const TAG_TERRAIN: u8 = 0x08;
+pub const TAG_COLONY_META: u8 = 0x09;
+pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 46;
@@ -53,8 +55,14 @@ pub const CMD_SET_PHERO_RES: u8 = 0x07;
 pub const CMD_SAVE: u8 = 0x08;
 pub const CMD_LOAD: u8 = 0x09;
 pub const CMD_RESET: u8 = 0x0A;
+pub const CMD_SET_FOOD: u8 = 0x0B;
+pub const CMD_SET_STONE: u8 = 0x0C;
+pub const CMD_SPAWN_ANT: u8 = 0x0D;
+pub const CMD_RENAME_COLONY: u8 = 0x0E;
+pub const CMD_ADD_TO_STORE: u8 = 0x0F;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+// `RenameColony` owns a `String`, so `Command` can no longer be `Copy`.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     SetPaused(bool),
     SetSpeed(u8),
@@ -66,6 +74,11 @@ pub enum Command {
     Save,
     Load,
     Reset(u64),
+    SetFood(f32, f32, f32),
+    SetStone(f32, f32, bool),
+    SpawnAnt(f32, f32, u8),
+    RenameColony(u8, String),
+    AddToStore(u8, f32),
 }
 
 /// Returns `None` for an unknown tag or a truncated payload. The caller logs
@@ -99,6 +112,46 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
         CMD_SAVE => Command::Save,
         CMD_LOAD => Command::Load,
         CMD_RESET => Command::Reset(u64::from_le_bytes(rest.get(0..8)?.try_into().ok()?)),
+        CMD_SET_FOOD => {
+            let x = f32::from_le_bytes(rest.get(0..4)?.try_into().ok()?);
+            let y = f32::from_le_bytes(rest.get(4..8)?.try_into().ok()?);
+            let a = f32::from_le_bytes(rest.get(8..12)?.try_into().ok()?);
+            if !(x.is_finite() && y.is_finite() && a.is_finite()) {
+                return None;
+            }
+            Command::SetFood(x, y, a)
+        }
+        CMD_SET_STONE => {
+            let x = f32::from_le_bytes(rest.get(0..4)?.try_into().ok()?);
+            let y = f32::from_le_bytes(rest.get(4..8)?.try_into().ok()?);
+            if !(x.is_finite() && y.is_finite()) {
+                return None;
+            }
+            Command::SetStone(x, y, *rest.get(8)? != 0)
+        }
+        CMD_SPAWN_ANT => {
+            let x = f32::from_le_bytes(rest.get(0..4)?.try_into().ok()?);
+            let y = f32::from_le_bytes(rest.get(4..8)?.try_into().ok()?);
+            if !(x.is_finite() && y.is_finite()) {
+                return None;
+            }
+            Command::SpawnAnt(x, y, *rest.get(8)?)
+        }
+        CMD_RENAME_COLONY => {
+            let colony = *rest.first()?;
+            let len = *rest.get(1)? as usize;
+            let bytes = rest.get(2..2 + len)?;
+            let name = std::str::from_utf8(bytes).ok()?.to_string();
+            Command::RenameColony(colony, name)
+        }
+        CMD_ADD_TO_STORE => {
+            let colony = *rest.first()?;
+            let a = f32::from_le_bytes(rest.get(1..5)?.try_into().ok()?);
+            if !a.is_finite() {
+                return None;
+            }
+            Command::AddToStore(colony, a)
+        }
         _ => return None,
     })
 }
@@ -113,7 +166,7 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
 /// first 500k-tick run showed 97.7% of ants are born free from the extinction
 /// floor rather than paid for out of a colony's store, and fingered exactly
 /// these four as the reason. See `docs/superpowers/notes/`.
-pub const CONFIG_FIELDS: [&str; 16] = [
+pub const CONFIG_FIELDS: [&str; 17] = [
     "food_evaporation",
     "alarm_evaporation",
     "scent_evaporation",
@@ -130,6 +183,7 @@ pub const CONFIG_FIELDS: [&str; 16] = [
     "growth_threshold",
     "food_regrow",
     "attack_damage",
+    "harvest_weight",
 ];
 
 fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
@@ -150,6 +204,7 @@ fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
         13 => &mut cfg.growth_threshold,
         14 => &mut cfg.food_regrow,
         15 => &mut cfg.attack_damage,
+        16 => &mut cfg.harvest_weight,
         _ => return None,
     })
 }
@@ -200,6 +255,13 @@ fn put_u64(b: &mut Vec<u8>, v: u64) {
 #[inline]
 fn put_f32(b: &mut Vec<u8>, v: f32) {
     b.extend_from_slice(&v.to_le_bytes());
+}
+#[inline]
+fn put_str_u8(b: &mut Vec<u8>, s: &str) {
+    let bytes = s.as_bytes();
+    let n = bytes.len().min(255);
+    put_u8(b, n as u8);
+    b.extend_from_slice(&bytes[..n]);
 }
 
 pub fn encode_hello(out: &mut Vec<u8>, w: &World, phero_res_log2: u8) {
@@ -388,6 +450,7 @@ pub struct AntDetail<'a> {
     pub lineage: u32,
     pub traits: [f32; 8],
     pub act: &'a Activations,
+    pub name: &'a str,
 }
 
 pub fn encode_ant_detail(out: &mut Vec<u8>, d: &AntDetail) {
@@ -428,7 +491,43 @@ pub fn encode_ant_detail(out: &mut Vec<u8>, d: &AntDetail) {
     for v in d.act.outputs {
         put_f32(out, v);
     }
+    // The fixed body ends here; `ANT_DETAIL_LEN` pins its length. The name is a
+    // length-prefixed tail, so old fixed offsets are unchanged.
     debug_assert_eq!(out.len(), ANT_DETAIL_LEN);
+    put_str_u8(out, d.name);
+}
+
+/// Colony names. Sent on connect and after reset/load (names change with the
+/// world). See the `0x09` layout in the plan/spec.
+pub fn encode_colony_meta(out: &mut Vec<u8>, w: &World) {
+    out.clear();
+    put_u8(out, TAG_COLONY_META);
+    put_u8(out, w.colonies.len() as u8);
+    for c in &w.colonies {
+        put_u8(out, c.id);
+        put_str_u8(out, &c.name);
+    }
+}
+
+/// The chronicle: a full capped snapshot at the stats cadence. The client
+/// replaces its list wholesale (watch channels are latest-value-wins).
+pub fn encode_chronicle(out: &mut Vec<u8>, w: &World) {
+    out.clear();
+    put_u8(out, TAG_CHRONICLE);
+    put_u16(out, w.chronicle.events.len() as u16);
+    for ev in &w.chronicle.events {
+        put_u64(out, ev.tick);
+        put_u8(out, ev.colony);
+        put_u8(out, ev.kind as u8);
+        let has_ant = ev.ant_id.is_some();
+        put_u8(out, if has_ant { 1 } else { 0 });
+        put_u64(out, ev.ant_id.unwrap_or(0));
+        put_str_u8(out, ev.ant_name.as_deref().unwrap_or(""));
+        let t = ev.text.as_bytes();
+        let n = t.len().min(u16::MAX as usize);
+        put_u16(out, n as u16);
+        out.extend_from_slice(&t[..n]);
+    }
 }
 
 /// Split out of `AntDetail` because weights never change while an ant lives.
@@ -698,13 +797,55 @@ mod tests {
                 lineage: 4,
                 traits: [0.0; 8],
                 act: &act,
+                name: "",
             },
         );
-        assert_eq!(b.len(), ANT_DETAIL_LEN);
+        assert_eq!(b.len(), ANT_DETAIL_LEN + 1, "fixed body plus an empty-name length byte");
         assert_eq!(u64::from_le_bytes(b[1..9].try_into().unwrap()), 7);
         assert_eq!(b[10], 1, "alive byte");
         assert_eq!(u32::from_le_bytes(b[45..49].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(b[49..53].try_into().unwrap()), 4);
+    }
+
+    #[test]
+    fn colony_meta_encodes_tag_count_and_a_name() {
+        let w = World::new(&small(), 1);
+        let mut b = Vec::new();
+        encode_colony_meta(&mut b, &w);
+        assert_eq!(b[0], TAG_COLONY_META);
+        assert_eq!(b[1], 2); // count
+        // id, then a non-zero name length for the first colony.
+        assert_eq!(b[2], 0);
+        assert!(b[3] > 0, "colony 0 has an empty name");
+    }
+
+    #[test]
+    fn chronicle_encodes_tag_and_count() {
+        let w = World::new(&small(), 1);
+        let mut b = Vec::new();
+        encode_chronicle(&mut b, &w);
+        assert_eq!(b[0], TAG_CHRONICLE);
+        // A fresh world has an empty chronicle.
+        assert_eq!(u16::from_le_bytes([b[1], b[2]]), 0);
+    }
+
+    #[test]
+    fn ant_detail_appends_a_length_prefixed_name() {
+        let act = Activations {
+            inputs: [0.0; sim::N_INPUTS],
+            h1: [0.0; sim::N_HIDDEN1],
+            h2: [0.0; sim::N_HIDDEN2],
+            outputs: [0.0; sim::N_OUTPUTS],
+        };
+        let mut b = Vec::new();
+        encode_ant_detail(&mut b, &AntDetail {
+            id: 5, colony: 0, alive: true, x: 1.0, y: 2.0, heading: 0.0,
+            energy: 1.0, max_energy: 1.0, size: 1.0, carrying: 0.0,
+            food_delivered: 0.0, age: 0, lineage: 0,
+            traits: [0.0; 8], act: &act, name: "Wren-5",
+        });
+        assert_eq!(b[ANT_DETAIL_LEN], 6, "name length byte follows the fixed body");
+        assert_eq!(b.len(), ANT_DETAIL_LEN + 1 + 6);
     }
 
     #[test]
@@ -740,6 +881,7 @@ mod tests {
                 lineage: 0,
                 traits: [0.0; 8],
                 act: &act,
+                name: "",
             },
         );
         let out0 = f32::from_le_bytes(b[389..393].try_into().unwrap());
@@ -756,6 +898,16 @@ mod tests {
         assert_eq!(b.len(), 2 + CONFIG_FIELDS.len() * 5);
         let v = f32::from_le_bytes(b[3..7].try_into().unwrap());
         assert_eq!(v, cfg.food_evaporation);
+    }
+
+    #[test]
+    fn field_id_16_sets_harvest_weight() {
+        let mut cfg = Config::default();
+        assert!(apply_config_field(&mut cfg, 16, 0.1));
+        assert_eq!(cfg.harvest_weight, 0.1);
+        // Clamped to >= 0 like the other non-evaporation fields.
+        apply_config_field(&mut cfg, 16, -1.0);
+        assert_eq!(cfg.harvest_weight, 0.0);
     }
 
     #[test]
@@ -833,6 +985,24 @@ mod tests {
         let mut b = vec![CMD_RESET];
         b.extend_from_slice(&99u64.to_le_bytes());
         assert_eq!(decode_command(&b), Some(Command::Reset(99)));
+    }
+
+    #[test]
+    fn decodes_the_map_edit_commands() {
+        let mut b = vec![CMD_SET_FOOD];
+        b.extend_from_slice(&1.0f32.to_le_bytes());
+        b.extend_from_slice(&2.0f32.to_le_bytes());
+        b.extend_from_slice(&50.0f32.to_le_bytes());
+        assert_eq!(decode_command(&b), Some(Command::SetFood(1.0, 2.0, 50.0)));
+
+        let mut r = vec![CMD_RENAME_COLONY, 3, 4];
+        r.extend_from_slice(b"Ants");
+        assert_eq!(
+            decode_command(&r),
+            Some(Command::RenameColony(3, "Ants".into()))
+        );
+
+        assert_eq!(decode_command(&[CMD_ADD_TO_STORE, 0]), None); // truncated
     }
 
     #[test]

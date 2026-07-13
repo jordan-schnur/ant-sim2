@@ -20,6 +20,8 @@ export const TAG_ANT_DETAIL = 0x05;
 export const TAG_ANT_GENOME = 0x06;
 export const TAG_CONFIG = 0x07;
 export const TAG_TERRAIN = 0x08;
+export const TAG_COLONY_META = 0x09;
+export const TAG_CHRONICLE = 0x0a;
 
 export const CMD_SET_PAUSED = 0x01;
 export const CMD_SET_SPEED = 0x02;
@@ -31,6 +33,11 @@ export const CMD_SET_PHERO_RES = 0x07;
 export const CMD_SAVE = 0x08;
 export const CMD_LOAD = 0x09;
 export const CMD_RESET = 0x0a;
+export const CMD_SET_FOOD = 0x0b;
+export const CMD_SET_STONE = 0x0c;
+export const CMD_SPAWN_ANT = 0x0d;
+export const CMD_RENAME_COLONY = 0x0e;
+export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
 export const BYTES_PER_COLONY = 46;
@@ -72,6 +79,7 @@ export const CONFIG_FIELDS = [
   "growth_threshold",
   "food_regrow",
   "attack_damage",
+  "harvest_weight",
 ] as const;
 
 export const TRAIT_NAMES = [
@@ -167,6 +175,7 @@ export interface AntDetail {
   h1: Float32Array;
   h2: Float32Array;
   outputs: Float32Array;
+  name: string;
 }
 
 export interface AntGenome {
@@ -180,6 +189,24 @@ export interface ConfigFrame {
   values: Map<number, number>;
 }
 
+export interface ColonyMeta {
+  kind: "colonyMeta";
+  colonies: { id: number; name: string }[];
+}
+
+export interface ChronicleEvent {
+  tick: number;
+  colony: number;
+  eventKind: number;
+  antId: number | null;
+  antName: string | null;
+  text: string;
+}
+export interface Chronicle {
+  kind: "chronicle";
+  events: ChronicleEvent[];
+}
+
 export type Frame =
   | Hello
   | Ants
@@ -188,7 +215,9 @@ export type Frame =
   | Stats
   | AntDetail
   | AntGenome
-  | ConfigFrame;
+  | ConfigFrame
+  | ColonyMeta
+  | Chronicle;
 
 /**
  * `id` and `tick` are u64 on the wire. JS numbers hold integers exactly to
@@ -198,6 +227,15 @@ export type Frame =
  */
 function u64(v: DataView, off: number): number {
   return Number(v.getBigUint64(off, true));
+}
+
+/** Read a u8-length-prefixed UTF-8 string, advancing the cursor. */
+function readStrU8(v: DataView, o: { p: number }): string {
+  const n = v.getUint8(o.p);
+  o.p += 1;
+  const bytes = new Uint8Array(v.buffer, v.byteOffset + o.p, n);
+  o.p += n;
+  return new TextDecoder().decode(bytes);
 }
 
 export function decode(buf: ArrayBuffer): Frame | null {
@@ -279,6 +317,10 @@ export function decode(buf: ArrayBuffer): Frame | null {
         for (let i = 0; i < n; i++) a[i] = v.getFloat32(o + i * 4, true);
         return a;
       };
+      // The fixed body ends at ANT_DETAIL_LEN; a length-prefixed name may
+      // follow. An old server that sends exactly the fixed body yields "".
+      const name =
+        v.byteLength > ANT_DETAIL_LEN ? readStrU8(v, { p: ANT_DETAIL_LEN }) : "";
       return {
         kind: "detail",
         id: u64(v, 1),
@@ -299,6 +341,7 @@ export function decode(buf: ArrayBuffer): Frame | null {
         h1: floats(261, N_HIDDEN1),
         h2: floats(325, N_HIDDEN2),
         outputs: floats(389, N_OUTPUTS),
+        name,
       };
     }
 
@@ -316,6 +359,52 @@ export function decode(buf: ArrayBuffer): Frame | null {
         values.set(v.getUint8(o), v.getFloat32(o + 1, true));
       }
       return { kind: "config", values };
+    }
+
+    case TAG_COLONY_META: {
+      const count = v.getUint8(1);
+      const colonies: { id: number; name: string }[] = [];
+      const o = { p: 2 };
+      for (let i = 0; i < count; i++) {
+        const id = v.getUint8(o.p);
+        o.p += 1;
+        colonies.push({ id, name: readStrU8(v, o) });
+      }
+      return { kind: "colonyMeta", colonies };
+    }
+
+    case TAG_CHRONICLE: {
+      const count = v.getUint16(1, true);
+      const events: ChronicleEvent[] = [];
+      const o = { p: 3 };
+      for (let i = 0; i < count; i++) {
+        const tick = u64(v, o.p);
+        o.p += 8;
+        const colony = v.getUint8(o.p);
+        o.p += 1;
+        const eventKind = v.getUint8(o.p);
+        o.p += 1;
+        const hasAnt = v.getUint8(o.p) !== 0;
+        o.p += 1;
+        const rawId = u64(v, o.p);
+        o.p += 8;
+        const antName = readStrU8(v, o);
+        const textLen = v.getUint16(o.p, true);
+        o.p += 2;
+        const text = new TextDecoder().decode(
+          new Uint8Array(v.buffer, v.byteOffset + o.p, textLen),
+        );
+        o.p += textLen;
+        events.push({
+          tick,
+          colony,
+          eventKind,
+          antId: hasAnt ? rawId : null,
+          antName: hasAnt ? antName : null,
+          text,
+        });
+      }
+      return { kind: "chronicle", events };
     }
 
     default:
@@ -359,6 +448,54 @@ export function cmdReset(seed: number): Uint8Array {
   const v = new DataView(b.buffer);
   v.setUint8(0, CMD_RESET);
   v.setBigUint64(1, BigInt(seed), true);
+  return b;
+}
+
+export function cmdSetFood(x: number, y: number, amount: number): Uint8Array {
+  const b = new Uint8Array(13);
+  const v = new DataView(b.buffer);
+  v.setUint8(0, CMD_SET_FOOD);
+  v.setFloat32(1, x, true);
+  v.setFloat32(5, y, true);
+  v.setFloat32(9, amount, true);
+  return b;
+}
+
+export function cmdSetStone(x: number, y: number, solid: boolean): Uint8Array {
+  const b = new Uint8Array(10);
+  const v = new DataView(b.buffer);
+  v.setUint8(0, CMD_SET_STONE);
+  v.setFloat32(1, x, true);
+  v.setFloat32(5, y, true);
+  v.setUint8(9, solid ? 1 : 0);
+  return b;
+}
+
+export function cmdSpawnAnt(x: number, y: number, colony: number): Uint8Array {
+  const b = new Uint8Array(10);
+  const v = new DataView(b.buffer);
+  v.setUint8(0, CMD_SPAWN_ANT);
+  v.setFloat32(1, x, true);
+  v.setFloat32(5, y, true);
+  v.setUint8(9, colony);
+  return b;
+}
+
+export function cmdRenameColony(colony: number, name: string): Uint8Array {
+  const bytes = new TextEncoder().encode(name).slice(0, 255);
+  const b = new Uint8Array(2 + bytes.length);
+  b[0] = CMD_RENAME_COLONY;
+  b[1] = colony;
+  b.set(bytes, 2);
+  return b;
+}
+
+export function cmdAddToStore(colony: number, amount: number): Uint8Array {
+  const b = new Uint8Array(6);
+  const v = new DataView(b.buffer);
+  v.setUint8(0, CMD_ADD_TO_STORE);
+  v.setUint8(1, colony);
+  v.setFloat32(2, amount, true);
   return b;
 }
 

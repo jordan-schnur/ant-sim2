@@ -92,7 +92,7 @@ fn brightest_scent_texel(w: &World) -> (usize, u8, u8) {
 
 #[test]
 fn emit_protocol_fixtures() {
-    let w = fixture_world();
+    let mut w = fixture_world();
     let mut b = Vec::new();
 
     encode_hello(&mut b, &w, 8);
@@ -117,6 +117,7 @@ fn emit_protocol_fixtures() {
 
     let act = w.activations(0);
     let traits = w.ants.genome[0].traits.as_array();
+    let detail_name = sim::names::ant_name(w.ants.id[0]);
     encode_ant_detail(
         &mut b,
         &AntDetail {
@@ -135,10 +136,11 @@ fn emit_protocol_fixtures() {
             lineage: w.ants.lineage[0],
             traits,
             act: &act,
+            name: &detail_name,
         },
     );
     write("detail.bin", &b);
-    assert_eq!(b.len(), ANT_DETAIL_LEN);
+    assert_eq!(b.len(), ANT_DETAIL_LEN + 1 + detail_name.len());
 
     let g = Genome::random(&mut Pcg32::new(7, 7));
     encode_ant_genome(&mut b, 42, &g);
@@ -146,6 +148,27 @@ fn emit_protocol_fixtures() {
 
     encode_config(&mut b, &w.cfg);
     write("config.bin", &b);
+
+    encode_colony_meta(&mut b, &w);
+    write("colony_meta.bin", &b);
+    let colony_count = w.colonies.len();
+    let colony0_name = w.colonies[0].name.clone();
+
+    // Exactly one hand-inserted event so the fixture exercises a populated
+    // chronicle deterministically. The 50-tick world's detectors may have
+    // already logged real events; clear them so the wire test pins a known one.
+    let chron_ant = w.ants.id[0];
+    w.chronicle.events.clear();
+    w.chronicle.record(&mut false, sim::chronicle::ChronicleEvent {
+        tick: 5,
+        colony: 1,
+        kind: sim::chronicle::EventKind::FirstDelivery,
+        ant_id: Some(chron_ant),
+        ant_name: Some(sim::names::ant_name(chron_ant)),
+        text: "the first crumb".into(),
+    });
+    encode_chronicle(&mut b, &w);
+    write("chronicle.bin", &b);
 
     // The values TypeScript must agree on. Hand-rolled so the server crate does
     // not take a serde_json dependency for one test.
@@ -160,7 +183,9 @@ fn emit_protocol_fixtures() {
             "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"floorSpawns\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
             "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
             "  \"genome\": {{ \"id\": 42, \"nParams\": {}, \"param0\": {} }},\n",
-            "  \"config\": {{ \"count\": {}, \"field0\": {} }}\n",
+            "  \"config\": {{ \"count\": {}, \"field0\": {} }},\n",
+            "  \"colonyMeta\": {{ \"count\": {}, \"name0\": \"{}\" }},\n",
+            "  \"chronicle\": {{ \"count\": 1, \"tick0\": 5, \"colony0\": 1, \"kind0\": 0, \"text0\": \"the first crumb\" }}\n",
             "}}\n"
         ),
         w.cfg.width,
@@ -219,6 +244,8 @@ fn emit_protocol_fixtures() {
         g.params[0],
         CONFIG_FIELDS.len(),
         w.cfg.food_evaporation,
+        colony_count,
+        colony0_name,
     );
     std::fs::write(dir().join("expected.json"), expected).unwrap();
 

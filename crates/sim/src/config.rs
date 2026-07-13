@@ -111,6 +111,14 @@ pub struct Config {
     pub growth_rate: f32,
     pub shrink_rate: f32,
 
+    // --- Fitness shaping ---
+    /// Weight on lifetime food *harvested* in the selection fitness, relative to
+    /// food *delivered* (weight 1.0). A dense gradient toward delivery: an ant
+    /// that finds and grabs food is closer to a forager than one that never
+    /// moves. Kept small so any real delivery dominates a lifetime of mere
+    /// harvesting. `0.0` recovers the original delivery-only thesis exactly.
+    pub harvest_weight: f32,
+
     // --- Mutation ---
     /// Fraction of parameters perturbed per birth.
     pub mutation_rate: f32,
@@ -130,6 +138,12 @@ pub struct Config {
 impl Config {
     pub fn cell_count(&self) -> usize {
         self.width as usize * self.height as usize
+    }
+
+    /// Selection fitness: the real objective plus a small harvest nudge.
+    #[inline]
+    pub fn fitness(&self, delivered: f32, harvested: f32) -> f32 {
+        delivered + self.harvest_weight * harvested
     }
 }
 
@@ -184,6 +198,8 @@ impl Default for Config {
             growth_threshold: 0.8,
             growth_rate: 0.002,
             shrink_rate: 0.004,
+
+            harvest_weight: 0.02,
 
             mutation_rate: 0.08,
             mutation_sigma: 0.05,
@@ -279,5 +295,34 @@ mod tests {
             instant_births < 25.0,
             "{instant_births} free births at t=0 is a population spike"
         );
+    }
+
+    #[test]
+    fn harvest_weight_defaults_to_a_small_nudge() {
+        assert_eq!(Config::default().harvest_weight, 0.02);
+    }
+
+    #[test]
+    fn fitness_is_delivery_plus_weighted_harvest() {
+        let c = Config { harvest_weight: 0.02, ..Config::default() };
+        assert!((c.fitness(10.0, 100.0) - 12.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fitness_with_zero_weight_is_pure_delivery() {
+        // The purity toggle: harvest_weight = 0 recovers the original thesis.
+        let c = Config { harvest_weight: 0.0, ..Config::default() };
+        assert_eq!(c.fitness(7.0, 999.0), 7.0);
+    }
+
+    #[test]
+    fn a_single_delivery_outweighs_a_lifetime_of_harvesting() {
+        // Anti-reward-hacking bound: any delivered unit must beat a plausible
+        // lifetime of harvest-without-delivery at the default weight.
+        let c = Config::default();
+        let lifetime_harvest_only = c.fitness(0.0, 400.0); // busy forager, never delivers
+        let one_delivery = c.fitness(10.0, 0.0);
+        assert!(one_delivery > lifetime_harvest_only,
+            "delivery {one_delivery} must dominate harvest {lifetime_harvest_only}");
     }
 }

@@ -64,6 +64,8 @@ pub struct Handles {
     pub detail: watch::Receiver<Frame>,
     pub genome: watch::Receiver<Frame>,
     pub config: watch::Receiver<Frame>,
+    pub colony_meta: watch::Receiver<Frame>,
+    pub chronicle: watch::Receiver<Frame>,
 }
 
 struct Publishers {
@@ -75,6 +77,8 @@ struct Publishers {
     detail: watch::Sender<Frame>,
     genome: watch::Sender<Frame>,
     config: watch::Sender<Frame>,
+    colony_meta: watch::Sender<Frame>,
+    chronicle: watch::Sender<Frame>,
 }
 
 fn empty() -> Frame {
@@ -112,6 +116,10 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
     }));
     let (detail_tx, detail) = watch::channel(empty());
     let (genome_tx, genome) = watch::channel(empty());
+    let (colony_meta_tx, colony_meta) =
+        watch::channel(frame(|b| protocol::encode_colony_meta(b, &world)));
+    let (chronicle_tx, chronicle) =
+        watch::channel(frame(|b| protocol::encode_chronicle(b, &world)));
 
     let pubs = Publishers {
         hello: hello_tx,
@@ -122,6 +130,8 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
         detail: detail_tx,
         genome: genome_tx,
         config: config_tx,
+        colony_meta: colony_meta_tx,
+        chronicle: chronicle_tx,
     };
 
     let st = State {
@@ -148,6 +158,8 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
         detail,
         genome,
         config,
+        colony_meta,
+        chronicle,
     }
 }
 
@@ -230,6 +242,8 @@ fn run(mut st: State, mut rx: UnboundedReceiver<Command>, pubs: Publishers) {
             let stats = st.world.stats();
             protocol::encode_stats(&mut buf, st.world.tick_count, &stats);
             let _ = pubs.stats.send(Arc::new(buf.clone()));
+            protocol::encode_chronicle(&mut buf, &st.world);
+            let _ = pubs.chronicle.send(Arc::new(buf.clone()));
             publish_detail(&pubs, &st, &mut buf);
             // Refreshed rather than sent once at startup: a client that
             // connects to an already-running sim would otherwise be told the
@@ -291,6 +305,7 @@ fn apply_command(st: &mut State, cmd: Command, pubs: &Publishers, buf: &mut Vec<
                 st.selected = None;
                 publish_hello(pubs, st, buf);
                 publish_config(pubs, st, buf);
+                publish_colony_meta(pubs, st, buf);
                 tracing::info!(path = ?st.save_path, "loaded");
             }
             Ok(Err(e)) => tracing::error!(%e, "decode failed"),
@@ -305,6 +320,18 @@ fn apply_command(st: &mut State, cmd: Command, pubs: &Publishers, buf: &mut Vec<
             st.selected = None;
             publish_hello(pubs, st, buf);
             publish_config(pubs, st, buf);
+            publish_colony_meta(pubs, st, buf);
+        }
+        // Operator map edits: applied between ticks, so they mutate the world
+        // without racing the tick. A rename republishes colony meta so the UI
+        // reflects the new name immediately.
+        Command::SetFood(x, y, a) => st.world.set_food(x, y, a),
+        Command::SetStone(x, y, solid) => st.world.set_stone(x, y, solid),
+        Command::SpawnAnt(x, y, colony) => st.world.spawn_ant_at(x, y, colony),
+        Command::AddToStore(colony, a) => st.world.add_to_store(colony, a),
+        Command::RenameColony(colony, name) => {
+            st.world.rename_colony(colony, name);
+            publish_colony_meta(pubs, st, buf);
         }
     }
 }
@@ -318,6 +345,11 @@ fn publish_hello(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
 fn publish_config(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
     protocol::encode_config(buf, &st.world.cfg);
     let _ = pubs.config.send(Arc::new(buf.clone()));
+}
+
+fn publish_colony_meta(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
+    protocol::encode_colony_meta(buf, &st.world);
+    let _ = pubs.colony_meta.send(Arc::new(buf.clone()));
 }
 
 fn publish_genome(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
@@ -357,6 +389,7 @@ fn publish_detail(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
                 lineage: 0,
                 traits: Traits::from_array([0.0; 8]).as_array(),
                 act: &act,
+                name: "",
             },
         );
         let _ = pubs.detail.send(Arc::new(buf.clone()));
@@ -382,6 +415,7 @@ fn publish_detail(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
             lineage: w.ants.lineage[i],
             traits: w.ants.genome[i].traits.as_array(),
             act: &act,
+            name: &sim::names::ant_name(w.ants.id[i]),
         },
     );
     let _ = pubs.detail.send(Arc::new(buf.clone()));
@@ -424,6 +458,8 @@ mod tests {
             detail: watch::channel(empty()).0,
             genome: watch::channel(empty()).0,
             config: watch::channel(empty()).0,
+            colony_meta: watch::channel(empty()).0,
+            chronicle: watch::channel(empty()).0,
         }
     }
 
@@ -523,7 +559,29 @@ mod tests {
         publish_detail(&p, &st, &mut buf);
         assert_eq!(buf[0], protocol::TAG_ANT_DETAIL);
         assert_eq!(buf[10], 0, "alive byte must be false");
-        assert_eq!(buf.len(), protocol::ANT_DETAIL_LEN);
+        assert_eq!(buf.len(), protocol::ANT_DETAIL_LEN + 1, "fixed body plus an empty-name byte");
+    }
+
+    #[test]
+    fn a_set_food_command_reaches_the_world() {
+        let mut st = state();
+        let mut buf = Vec::new();
+        apply_command(&mut st, Command::SetFood(4.0, 4.0, 77.0), &pubs(), &mut buf);
+        let i = st.world.grid.idx(4, 4);
+        assert_eq!(st.world.grid.food[i], 77.0);
+    }
+
+    #[test]
+    fn a_rename_reaches_the_colony_and_republishes_meta() {
+        let mut st = state();
+        let mut buf = Vec::new();
+        apply_command(
+            &mut st,
+            Command::RenameColony(0, "Test Host".into()),
+            &pubs(),
+            &mut buf,
+        );
+        assert_eq!(st.world.colonies[0].name, "Test Host");
     }
 
     #[test]
@@ -645,6 +703,11 @@ mod tests {
 
         let st = h.stats.borrow().clone();
         assert_eq!(st[0], protocol::TAG_STATS);
+
+        let cm = h.colony_meta.borrow().clone();
+        assert_eq!(cm[0], protocol::TAG_COLONY_META);
+        let ch = h.chronicle.borrow().clone();
+        assert_eq!(ch[0], protocol::TAG_CHRONICLE);
 
         // Nothing is selected yet, so these two are legitimately empty.
         assert!(h.detail.borrow().is_empty());

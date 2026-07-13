@@ -75,7 +75,10 @@ async fn serve(socket: WebSocket, h: Handles) {
         // not `Send`, and holding one across the `await` below would make the
         // whole task unspawnable.
         let initial: Vec<Frame> = {
-            [&h.hello, &h.config, &h.terrain, &h.ants, &h.phero, &h.stats]
+            [
+                &h.hello, &h.config, &h.terrain, &h.ants, &h.phero, &h.stats,
+                &h.colony_meta, &h.chronicle,
+            ]
                 .iter()
                 .map(|rx| rx.borrow().clone())
                 .collect()
@@ -94,6 +97,8 @@ async fn serve(socket: WebSocket, h: Handles) {
         let mut genome = h.genome.clone();
         let mut config = h.config.clone();
         let mut hello = h.hello.clone();
+        let mut colony_meta = h.colony_meta.clone();
+        let mut chronicle = h.chronicle.clone();
 
         loop {
             // `changed()` resolves once per *change*, not once per value. If the
@@ -110,6 +115,8 @@ async fn serve(socket: WebSocket, h: Handles) {
                 Ok(()) = genome.changed() => genome.borrow_and_update().clone(),
                 Ok(()) = config.changed() => config.borrow_and_update().clone(),
                 Ok(()) = hello.changed()  => hello.borrow_and_update().clone(),
+                Ok(()) = colony_meta.changed() => colony_meta.borrow_and_update().clone(),
+                Ok(()) = chronicle.changed() => chronicle.borrow_and_update().clone(),
                 else => break,
             };
             if f.is_empty() {

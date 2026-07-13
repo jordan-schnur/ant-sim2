@@ -34,8 +34,12 @@ pub struct Ants {
     pub age: Vec<u32>,
     pub carrying: Vec<f32>,
     pub lineage: Vec<u32>,
-    /// Lifetime food delivered to the nest. This is the *only* fitness signal.
+    /// Lifetime food delivered to the nest. The real objective.
     pub food_delivered: Vec<f32>,
+    /// Lifetime food grabbed into cargo, whether or not it was ever delivered.
+    /// A dense fitness stepping stone: see `Config::fitness`. Serialized (unlike
+    /// `attacking`) because fitness must survive save/load.
+    pub food_harvested: Vec<f32>,
     pub memory: Vec<[f32; N_MEMORY]>,
     pub genome: Vec<Genome>,
     pub rng: Vec<Pcg32>,
@@ -51,6 +55,12 @@ pub struct Ants {
     /// reads go through `is_attacking`.
     #[serde(skip)]
     pub attacking: Vec<bool>,
+
+    /// Landed a *killing* blow this tick. Same contract as `attacking`: derived
+    /// per-tick, not serialised, read through `killed_this_tick` which tolerates
+    /// the empty vector left by a load. Feeds the `FirstKill` chronicle detector.
+    #[serde(skip)]
+    pub killed: Vec<bool>,
 }
 
 impl Ants {
@@ -64,10 +74,18 @@ impl Ants {
         self.attacking.get(i).copied().unwrap_or(false)
     }
 
+    /// Tolerates the empty vector left by deserialisation.
+    #[inline]
+    pub fn killed_this_tick(&self, i: usize) -> bool {
+        self.killed.get(i).copied().unwrap_or(false)
+    }
+
     /// Called at the top of each tick. Also repairs the length after a load.
     pub fn clear_attacking(&mut self) {
         self.attacking.clear();
         self.attacking.resize(self.id.len(), false);
+        self.killed.clear();
+        self.killed.resize(self.id.len(), false);
     }
 
     pub fn len(&self) -> usize {
@@ -103,10 +121,12 @@ impl Ants {
         self.carrying.push(0.0);
         self.lineage.push(s.lineage);
         self.food_delivered.push(0.0);
+        self.food_harvested.push(0.0);
         self.memory.push([0.0; N_MEMORY]);
         self.genome.push(s.genome);
         self.alive.push(true);
         self.attacking.push(false);
+        self.killed.push(false);
     }
 
     /// Floored cell.
@@ -152,11 +172,15 @@ impl Ants {
         retain(&mut self.carrying, &keep);
         retain(&mut self.lineage, &keep);
         retain(&mut self.food_delivered, &keep);
+        retain(&mut self.food_harvested, &keep);
         retain(&mut self.memory, &keep);
         retain(&mut self.genome, &keep);
         retain(&mut self.rng, &keep);
         if self.attacking.len() == keep.len() {
             retain(&mut self.attacking, &keep);
+        }
+        if self.killed.len() == keep.len() {
+            retain(&mut self.killed, &keep);
         }
         self.alive.retain(|_| {
             let v = keep[k];
@@ -223,6 +247,7 @@ mod tests {
         assert_eq!(a.carrying.len(), n);
         assert_eq!(a.lineage.len(), n);
         assert_eq!(a.food_delivered.len(), n);
+        assert_eq!(a.food_harvested.len(), n);
         assert_eq!(a.memory.len(), n);
         assert_eq!(a.genome.len(), n);
         assert_eq!(a.rng.len(), n);
@@ -273,6 +298,13 @@ mod tests {
         assert_eq!(a.population(1), 2);
         assert_eq!(a.population(2), 1);
         assert_eq!(a.population(3), 0);
+    }
+
+    #[test]
+    fn newborn_food_harvested_starts_at_zero() {
+        let mut a = Ants::new();
+        a.push(spawn(0, 0, 0.0, 0.0));
+        assert_eq!(a.food_harvested[0], 0.0);
     }
 
     #[test]

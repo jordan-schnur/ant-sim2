@@ -4,6 +4,7 @@ use crate::apply::{
     sweep_deaths, ApplyCtx,
 };
 use crate::brain::{Activations, Brain};
+use crate::chronicle::Chronicle;
 use crate::colony::ColonyState;
 use crate::config::Config;
 use crate::genome::Genome;
@@ -30,6 +31,8 @@ pub struct World {
     /// Drives births and worldgen only. Ants draw from their own streams.
     pub rng: Pcg32,
     pub next_id: u64,
+    /// The story log: permanent "firsts" and rolling titles, streamed to the UI.
+    pub chronicle: Chronicle,
 
     /// Derived each tick; never serialised.
     #[serde(skip)]
@@ -39,7 +42,7 @@ pub struct World {
 impl World {
     pub fn new(cfg: &Config, seed: u64) -> Self {
         let mut rng = Pcg32::new(seed, 0xA17);
-        let (grid, colonies) = generate(cfg, &mut rng);
+        let (grid, colonies) = generate(cfg, seed, &mut rng);
 
         let mut ants = Ants::new();
         let mut next_id = 0u64;
@@ -78,6 +81,7 @@ impl World {
             colonies,
             rng,
             next_id,
+            chronicle: Chronicle::new(),
             spatial: Spatial::new(cfg),
         };
         w.rebuild_index();
@@ -93,6 +97,90 @@ impl World {
         if self.ants.attacking.len() != self.ants.len() {
             self.ants.clear_attacking();
         }
+    }
+
+    /// Cell index for a world position, or `None` if non-finite or off-map.
+    /// Shared by the operator map-edit mutators below.
+    fn cell_index(&self, x: f32, y: f32) -> Option<usize> {
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        if !self.grid.in_bounds(x as i32, y as i32) {
+            return None;
+        }
+        Some(self.grid.idx(x as u16, y as u16))
+    }
+
+    /// Operator edit: set the standing food at a cell. Applied between ticks by
+    /// the sim thread, so it mutates deterministically without racing the tick.
+    pub fn set_food(&mut self, x: f32, y: f32, amount: f32) {
+        if let Some(i) = self.cell_index(x, y) {
+            self.grid.food[i] = amount.max(0.0);
+        }
+    }
+
+    /// Operator edit: place or clear stone. A nest tile is never buried.
+    pub fn set_stone(&mut self, x: f32, y: f32, solid: bool) {
+        if let Some(i) = self.cell_index(x, y) {
+            if self.grid.nest[i] == crate::grid::NO_NEST {
+                self.grid.stone[i] = solid;
+                if solid {
+                    self.grid.food[i] = 0.0;
+                }
+            }
+        }
+    }
+
+    /// Operator edit: add (or, with a negative amount, remove) food from a
+    /// colony's store, floored at zero.
+    pub fn add_to_store(&mut self, colony: u8, amount: f32) {
+        if !amount.is_finite() {
+            return;
+        }
+        if let Some(c) = self.colonies.get_mut(colony as usize) {
+            c.store = (c.store + amount).max(0.0);
+        }
+    }
+
+    /// Operator edit: rename a colony.
+    pub fn rename_colony(&mut self, colony: u8, name: String) {
+        if let Some(c) = self.colonies.get_mut(colony as usize) {
+            c.name = name;
+        }
+    }
+
+    /// Operator edit: spawn one ant of a colony at a position, bred from the
+    /// colony's archive (or a random genome if the archive is empty). Uses the
+    /// world id counter so `Ants::push`'s strictly-increasing-id invariant holds,
+    /// and rebuilds the spatial index the edit invalidated.
+    pub fn spawn_ant_at(&mut self, x: f32, y: f32, colony: u8) {
+        if self.cell_index(x, y).is_none() {
+            return;
+        }
+        if colony as usize >= self.colonies.len() {
+            return;
+        }
+        let genome = match self.colonies[colony as usize].archive_parent(&mut self.rng) {
+            Some((g, _)) => g.clone(),
+            None => Genome::random(&mut self.rng),
+        };
+        let id = self.next_id;
+        self.next_id += 1;
+        let energy = crate::reproduce::NEWBORN_ENERGY_FRAC
+            * genome.max_energy(&self.cfg, crate::reproduce::NEWBORN_SIZE);
+        self.ants.push(Spawn {
+            id,
+            colony,
+            x,
+            y,
+            heading: 0.0,
+            energy,
+            size: crate::reproduce::NEWBORN_SIZE,
+            lineage: 0,
+            genome,
+            birth_tick: self.tick_count,
+        });
+        self.rebuild_index();
     }
 
     /// Index of a living ant by id. `Ants::id` is sorted, so this binary-searches.
@@ -210,11 +298,164 @@ impl World {
             &mut self.rng,
         );
 
+        self.run_chronicle_detectors();
+
         // --- Phase 3: fields. ---
         self.phero.step(&self.cfg);
         self.grid.regrow(self.cfg.food_regrow);
 
         self.tick_count += 1;
+    }
+
+    /// Population thresholds announced as a colony grows.
+    const MILESTONES: [u32; 4] = [10, 25, 50, 100];
+
+    /// The event registry. Each block is one detector; add a milestone by adding
+    /// a block. Runs in the serial phase, so it cannot perturb determinism.
+    ///
+    /// `FirstTrailFollow` is deliberately not implemented: attributing a delivery
+    /// to trail-following requires threading the delivering cell's food-pheromone
+    /// out of `apply_nest`, which the current apply phase does not expose. It is
+    /// deferred to a follow-up rather than approximated. `EventKind` still
+    /// reserves its wire byte so adding it later needs no format change.
+    fn run_chronicle_detectors(&mut self) {
+        let tick = self.tick_count;
+        for ci in 0..self.colonies.len() {
+            let cid = self.colonies[ci].id;
+
+            // PopulationMilestone: crossed one or more thresholds this tick.
+            {
+                let pop = self.ants.population(cid);
+                while self.colonies[ci].next_milestone_idx < Self::MILESTONES.len()
+                    && pop >= Self::MILESTONES[self.colonies[ci].next_milestone_idx]
+                {
+                    let m = Self::MILESTONES[self.colonies[ci].next_milestone_idx];
+                    let cname = self.colonies[ci].name.clone();
+                    self.colonies[ci].next_milestone_idx += 1;
+                    let mut flag = false;
+                    self.chronicle.record(&mut flag, crate::chronicle::ChronicleEvent {
+                        tick,
+                        colony: cid,
+                        kind: crate::chronicle::EventKind::PopulationMilestone,
+                        ant_id: None,
+                        ant_name: None,
+                        text: format!("{cname} reached {m} ants"),
+                    });
+                }
+            }
+
+            // FirstKill: this colony landed its first killing blow.
+            if !self.colonies[ci].first_kill_done {
+                let killer = (0..self.ants.len()).find(|&i| {
+                    self.ants.colony[i] == cid && self.ants.killed_this_tick(i)
+                });
+                if let Some(i) = killer {
+                    let id = self.ants.id[i];
+                    let cname = self.colonies[ci].name.clone();
+                    let mut done = self.colonies[ci].first_kill_done;
+                    self.chronicle.record(&mut done, crate::chronicle::ChronicleEvent {
+                        tick,
+                        colony: cid,
+                        kind: crate::chronicle::EventKind::FirstKill,
+                        ant_id: Some(id),
+                        ant_name: Some(crate::names::ant_name(id)),
+                        text: format!("{cname}: first blood"),
+                    });
+                    self.colonies[ci].first_kill_done = done;
+                }
+            }
+
+            // TopForager: a new single-ant delivery record for this colony.
+            {
+                let best = (0..self.ants.len())
+                    .filter(|&i| self.ants.alive[i] && self.ants.colony[i] == cid)
+                    .max_by(|&a, &b| {
+                        self.ants.food_delivered[a].total_cmp(&self.ants.food_delivered[b])
+                    });
+                if let Some(i) = best {
+                    let d = self.ants.food_delivered[i];
+                    if d > self.colonies[ci].best_forager_delivered {
+                        self.colonies[ci].best_forager_delivered = d;
+                        let id = self.ants.id[i];
+                        let cname = self.colonies[ci].name.clone();
+                        let mut flag = false;
+                        self.chronicle.record(&mut flag, crate::chronicle::ChronicleEvent {
+                            tick,
+                            colony: cid,
+                            kind: crate::chronicle::EventKind::TopForager,
+                            ant_id: Some(id),
+                            ant_name: Some(crate::names::ant_name(id)),
+                            text: format!("{cname}: new top forager, {d:.0} delivered"),
+                        });
+                    }
+                }
+            }
+
+            // EldestAnt: a *new individual* out-lives every predecessor. Gated on
+            // id so an ant aging past its own record does not fire every tick.
+            {
+                let oldest = (0..self.ants.len())
+                    .filter(|&i| self.ants.alive[i] && self.ants.colony[i] == cid)
+                    .max_by_key(|&i| self.ants.age[i]);
+                if let Some(i) = oldest {
+                    let age = self.ants.age[i] as u64;
+                    let id = self.ants.id[i];
+                    if age > self.colonies[ci].eldest_seen
+                        && id != self.colonies[ci].eldest_id
+                    {
+                        self.colonies[ci].eldest_seen = age;
+                        self.colonies[ci].eldest_id = id;
+                        let cname = self.colonies[ci].name.clone();
+                        let mut flag = false;
+                        self.chronicle.record(&mut flag, crate::chronicle::ChronicleEvent {
+                            tick,
+                            colony: cid,
+                            kind: crate::chronicle::EventKind::EldestAnt,
+                            ant_id: Some(id),
+                            ant_name: Some(crate::names::ant_name(id)),
+                            text: format!("{cname}: oldest ant yet"),
+                        });
+                    } else if age > self.colonies[ci].eldest_seen {
+                        // Same individual still aging: advance the record silently.
+                        self.colonies[ci].eldest_seen = age;
+                    }
+                }
+            }
+        }
+        for ci in 0..self.colonies.len() {
+            // FirstDelivery: the colony's store has been fed for the first time.
+            if !self.colonies[ci].first_delivery_done
+                && self.colonies[ci].delivered_total > 0.0
+            {
+                let cid = self.colonies[ci].id;
+                // Attribute to the living ant of this colony with the most
+                // delivered — the likely deliverer this tick.
+                let who = (0..self.ants.len())
+                    .filter(|&i| self.ants.alive[i] && self.ants.colony[i] == cid)
+                    .max_by(|&a, &b| {
+                        self.ants.food_delivered[a]
+                            .total_cmp(&self.ants.food_delivered[b])
+                    });
+                let (ant_id, ant_name) = match who {
+                    Some(i) => (
+                        Some(self.ants.id[i]),
+                        Some(crate::names::ant_name(self.ants.id[i])),
+                    ),
+                    None => (None, None),
+                };
+                let cname = self.colonies[ci].name.clone();
+                let mut done = self.colonies[ci].first_delivery_done;
+                self.chronicle.record(&mut done, crate::chronicle::ChronicleEvent {
+                    tick,
+                    colony: cid,
+                    kind: crate::chronicle::EventKind::FirstDelivery,
+                    ant_id,
+                    ant_name,
+                    text: format!("{cname}: first food carried home"),
+                });
+                self.colonies[ci].first_delivery_done = done;
+            }
+        }
     }
 
     pub fn stats(&self) -> Vec<ColonyStats> {
@@ -242,6 +483,7 @@ impl World {
             eat(&self.ants.size[i].to_bits().to_le_bytes());
             eat(&self.ants.carrying[i].to_bits().to_le_bytes());
             eat(&self.ants.food_delivered[i].to_bits().to_le_bytes());
+            eat(&self.ants.food_harvested[i].to_bits().to_le_bytes());
         }
         for c in &self.colonies {
             eat(&c.store.to_bits().to_le_bytes());
@@ -271,6 +513,59 @@ mod tests {
             food_patch_count: 6,
             ..Config::default()
         }
+    }
+
+    #[test]
+    fn set_food_writes_the_cell_and_clamps_out_of_bounds() {
+        let mut w = World::new(&Config { width: 32, height: 32, ..Config::default() }, 1);
+        w.set_food(5.0, 5.0, 123.0);
+        let i = w.grid.idx(5, 5);
+        assert_eq!(w.grid.food[i], 123.0);
+        w.set_food(-9.0, -9.0, 1.0); // must not panic
+    }
+
+    #[test]
+    fn add_to_store_credits_the_named_colony() {
+        let mut w = World::new(&Config { num_colonies: 2, ..Config::default() }, 1);
+        let before = w.colonies[1].store;
+        w.add_to_store(1, 50.0);
+        assert_eq!(w.colonies[1].store, before + 50.0);
+    }
+
+    #[test]
+    fn spawn_ant_at_adds_one_living_ant_of_that_colony() {
+        let mut w = World::new(
+            &Config { width: 32, height: 32, num_colonies: 2, ..Config::default() },
+            1,
+        );
+        let before = w.ants.population(0);
+        w.spawn_ant_at(4.0, 4.0, 0);
+        assert_eq!(w.ants.population(0), before + 1);
+        assert!(w.ants.id.windows(2).all(|s| s[0] < s[1]), "ids stay sorted");
+    }
+
+    #[test]
+    fn population_milestone_fires_when_a_colony_first_reaches_ten() {
+        // Start above the first milestone so the detector fires on tick 1
+        // regardless of whether the colony grows.
+        let mut w = World::new(
+            &Config {
+                width: 96,
+                height: 96,
+                num_colonies: 2,
+                initial_ants_per_colony: 12,
+                ..Config::default()
+            },
+            1,
+        );
+        w.tick();
+        assert!(
+            w.chronicle.events.iter().any(|e| matches!(
+                e.kind,
+                crate::chronicle::EventKind::PopulationMilestone
+            )),
+            "no population milestone fired for a 12-ant colony"
+        );
     }
 
     #[test]

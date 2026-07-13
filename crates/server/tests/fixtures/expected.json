@@ -6,5 +6,7 @@
   "stats": { "count": 2, "first": { "id": 0, "population": 18, "store": 123.5, "births": 11, "deaths": 7, "floorSpawns": 3, "meanSize": 0.66022176, "meanLineage": 2.0555556, "deliveredTotal": 45.25 } },
   "detail": { "id": 0, "colony": 0, "alive": true, "x": 17.5, "y": 4.25, "age": 37, "lineage": 5, "trait0": 0.49187687, "trait7": 8961.15, "input0": 1, "input43": -0.60869735, "h1_0": -0.74264956, "h1_15": 0.21019119, "h2_0": -0.93843305, "h2_15": 0.66819286, "output0": -0.488154, "output7": -0.55956924 },
   "genome": { "id": 42, "nParams": 1128, "param0": 0.10043309 },
-  "config": { "count": 16, "field0": 0.995 }
+  "config": { "count": 17, "field0": 0.995 },
+  "colonyMeta": { "count": 2, "name0": "the Obsidian Marsh" },
+  "chronicle": { "count": 1, "tick0": 5, "colony0": 1, "kind0": 0, "text0": "the first crumb" }
 }

@@ -12,6 +12,8 @@ import type {
   AntDetail,
   AntGenome,
   Ants,
+  Chronicle,
+  ColonyMeta,
   ColonyStat,
   ConfigFrame,
   Hello,
@@ -43,12 +45,15 @@ export interface State {
   genome: AntGenome | null;
   config: Map<number, number>;
   history: Map<number, ColonyHistory>;
+  colonyMeta: ColonyMeta | null;
+  chronicle: Chronicle | null;
 
   // Playback state is client-side optimism: the server is authoritative, but
   // the button must light up the instant it is pressed.
   paused: boolean;
   speed: Speed;
   layers: { food: boolean; alarm: boolean; scent: boolean };
+  labels: boolean;
   pheroResLog2: number;
 }
 
@@ -67,9 +72,12 @@ export class Store {
     genome: null,
     config: new Map(),
     history: new Map(),
+    colonyMeta: null,
+    chronicle: null,
     paused: true,
     speed: 0,
     layers: { food: true, alarm: false, scent: true },
+    labels: true,
     pheroResLog2: 8,
   };
 
@@ -148,6 +156,24 @@ export class Store {
     this.notify();
   }
 
+  applyColonyMeta(m: ColonyMeta): void {
+    this.state.colonyMeta = m;
+    this.notify();
+  }
+
+  applyChronicle(c: Chronicle): void {
+    this.state.chronicle = c;
+    this.notify();
+  }
+
+  /** The colony's generated name, or a stable fallback before meta arrives. */
+  colonyName(id: number): string {
+    return (
+      this.state.colonyMeta?.colonies.find((c) => c.id === id)?.name ??
+      `colony ${id}`
+    );
+  }
+
   clearSelection(): void {
     this.state.detail = null;
     this.state.genome = null;
@@ -167,6 +193,11 @@ export class Store {
 
   toggleLayer(k: keyof State["layers"]): void {
     this.state.layers[k] = !this.state.layers[k];
+    this.notify();
+  }
+
+  toggleLabels(): void {
+    this.state.labels = !this.state.labels;
     this.notify();
   }
 }

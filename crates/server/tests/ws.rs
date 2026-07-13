@@ -283,7 +283,8 @@ async fn selecting_an_ant_yields_a_genome_and_then_detail_frames() {
                 saw_genome = true;
             }
             TAG_ANT_DETAIL => {
-                assert_eq!(f.len(), ANT_DETAIL_LEN);
+                // The fixed body plus a length-prefixed name tail.
+                assert!(f.len() > ANT_DETAIL_LEN, "detail carries a name tail");
                 assert_eq!(f[10], 1, "the ant we picked should be alive");
                 saw_detail = true;
             }

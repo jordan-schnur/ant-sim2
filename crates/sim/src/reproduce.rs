@@ -64,7 +64,7 @@ pub fn reproduce(
         // --- Paid births from the food store. ---
         let mut births = 0;
         while colonies[ci].store >= cfg.birth_cost && births < cfg.max_births_per_tick {
-            let Some(p) = colonies[ci].select_parent(ants, rng) else {
+            let Some(p) = colonies[ci].select_parent(ants, cfg.harvest_weight, rng) else {
                 break;
             };
             let genome = ants.genome[p].mutated(cfg, rng);

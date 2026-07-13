@@ -31,9 +31,11 @@ import {
   TAG_TERRAIN,
   TAG_STATS,
   antAt,
+  cmdRenameColony,
   cmdReset,
   cmdSelectAt,
   cmdSetConfig,
+  cmdSetFood,
   cmdSetPaused,
   decode,
 } from "../src/protocol.js";
@@ -235,8 +237,9 @@ describe("stats", () => {
 });
 
 describe("ant detail", () => {
-  it("is exactly the documented length", () => {
-    expect(load("detail.bin").byteLength).toBe(ANT_DETAIL_LEN);
+  it("is at least the documented fixed-body length plus a name tail", () => {
+    // ANT_DETAIL_LEN is now the minimum: a length-prefixed name follows.
+    expect(load("detail.bin").byteLength).toBeGreaterThan(ANT_DETAIL_LEN);
   });
 
   it("agrees on scalars, traits, and activations", () => {
@@ -256,6 +259,8 @@ describe("ant detail", () => {
     expect(f.traits[7]).toBeCloseTo(e.trait7, 3);
     expect(f.inputs[0]).toBeCloseTo(e.input0, 6);
     expect(f.outputs[0]).toBeCloseTo(e.output0, 6);
+    // The trailing length-prefixed name decodes to a non-empty string.
+    expect(f.name.length).toBeGreaterThan(0);
   });
 
   it("pins the head and tail of every activation layer", () => {
@@ -328,6 +333,32 @@ describe("config", () => {
   });
 });
 
+describe("colonyMeta", () => {
+  it("agrees with the Rust encoder on count and names", () => {
+    const f = decode(load("colony_meta.bin"));
+    expect(f?.kind).toBe("colonyMeta");
+    if (f?.kind !== "colonyMeta") return;
+    expect(f.colonies.length).toBe(expected.colonyMeta.count);
+    expect(f.colonies[0].id).toBe(0);
+    expect(f.colonies[0].name).toBe(expected.colonyMeta.name0);
+  });
+});
+
+describe("chronicle", () => {
+  it("agrees with the Rust encoder on the event fields", () => {
+    const f = decode(load("chronicle.bin"));
+    expect(f?.kind).toBe("chronicle");
+    if (f?.kind !== "chronicle") return;
+    expect(f.events.length).toBe(expected.chronicle.count);
+    const e = f.events[0];
+    expect(e.tick).toBe(expected.chronicle.tick0);
+    expect(e.colony).toBe(expected.chronicle.colony0);
+    expect(e.eventKind).toBe(expected.chronicle.kind0);
+    expect(e.text).toBe(expected.chronicle.text0);
+    expect(e.antName?.length).toBeGreaterThan(0);
+  });
+});
+
 describe("unknown frames", () => {
   it("decode returns null rather than throwing", () => {
     expect(decode(new Uint8Array([0xff, 1, 2, 3]).buffer)).toBeNull();
@@ -364,6 +395,24 @@ describe("commands", () => {
     expect(v.getUint8(0)).toBe(0x0a);
     expect(v.getBigUint64(1, true)).toBe(99n);
     expect(b.byteLength).toBe(9);
+  });
+
+  it("encodes set_food as tag + three little-endian f32", () => {
+    const b = cmdSetFood(1.5, 2.5, 50);
+    const v = new DataView(b.buffer);
+    expect(v.getUint8(0)).toBe(0x0b);
+    expect(v.getFloat32(1, true)).toBe(1.5);
+    expect(v.getFloat32(5, true)).toBe(2.5);
+    expect(v.getFloat32(9, true)).toBe(50);
+    expect(b.byteLength).toBe(13);
+  });
+
+  it("encodes rename_colony as tag + colony + length-prefixed name", () => {
+    const b = cmdRenameColony(3, "Ants");
+    expect(b[0]).toBe(0x0e);
+    expect(b[1]).toBe(3);
+    expect(new TextDecoder().decode(b.slice(2))).toBe("Ants");
+    expect(b.byteLength).toBe(2 + 4);
   });
 });
 

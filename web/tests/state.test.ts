@@ -76,7 +76,7 @@ describe("dispatch", () => {
     expect(store.state.genome?.params.length).toBe(1128);
 
     net.dispatch(load("config.bin"));
-    expect(store.state.config.size).toBe(16);
+    expect(store.state.config.size).toBe(17);
   });
 
   it("ignores an unknown tag rather than throwing", () => {
@@ -174,6 +174,7 @@ describe("selection", () => {
       h1: new Float32Array(16),
       h2: new Float32Array(16),
       outputs: new Float32Array(8),
+      name: "",
     });
     expect(s.state.genome?.id).toBe(7);
   });
