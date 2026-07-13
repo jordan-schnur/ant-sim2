@@ -7,6 +7,7 @@ import { Net, socketUrl } from "./net.js";
 import { cmdClearSelection, cmdSelectAt } from "./protocol.js";
 import { Store } from "./state.js";
 import { WorldRenderer } from "./render/world.js";
+import { mountChronicle } from "./ui/chronicle.js";
 import { mountColonies } from "./ui/colony.js";
 import { mountControls } from "./ui/controls.js";
 import { mountInspector } from "./ui/inspector.js";
@@ -28,9 +29,11 @@ mountControls(leftRail, store, net);
 // the first stats frame lands, so appending both panels straight onto the rail
 // would leave the colonies underneath the inspector.
 const coloniesEl = document.createElement("div");
+const chronicleEl = document.createElement("div");
 const inspectorEl = document.createElement("div");
-rightRail.append(coloniesEl, inspectorEl);
+rightRail.append(coloniesEl, chronicleEl, inspectorEl);
 mountColonies(coloniesEl, store);
+mountChronicle(chronicleEl, store);
 mountInspector(inspectorEl, store);
 
 document.getElementById("collapse-left")!.addEventListener("click", () => {

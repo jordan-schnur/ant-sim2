@@ -26,6 +26,7 @@ export function mountColonies(root: HTMLElement, store: Store): void {
         cards.set(c.id, k);
         root.append(k.el);
       }
+      k.name.textContent = store.colonyName(c.id);
       k.pop.textContent = String(c.population);
       k.store.textContent = c.store.toFixed(0);
       k.gen.textContent = c.meanLineage.toFixed(1);
@@ -70,6 +71,8 @@ function card(id: number) {
   const name = document.createElement("span");
   name.textContent = `colony ${id}`;
   title.append(sw, name);
+  // `name` is refreshed each render: colony meta arrives asynchronously, after
+  // the card may already exist.
 
   const kv = document.createElement("div");
   kv.className = "kv";
@@ -96,7 +99,7 @@ function card(id: number) {
   canvas.title = "delivered_total over time";
 
   el.append(title, kv, bar, canvas);
-  return { el, pop, store: store_, gen, delivered, births, free, freeBar, canvas };
+  return { el, name, pop, store: store_, gen, delivered, births, free, freeBar, canvas };
 }
 
 /**

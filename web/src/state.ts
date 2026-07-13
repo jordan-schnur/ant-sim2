@@ -12,6 +12,8 @@ import type {
   AntDetail,
   AntGenome,
   Ants,
+  Chronicle,
+  ColonyMeta,
   ColonyStat,
   ConfigFrame,
   Hello,
@@ -43,6 +45,8 @@ export interface State {
   genome: AntGenome | null;
   config: Map<number, number>;
   history: Map<number, ColonyHistory>;
+  colonyMeta: ColonyMeta | null;
+  chronicle: Chronicle | null;
 
   // Playback state is client-side optimism: the server is authoritative, but
   // the button must light up the instant it is pressed.
@@ -67,6 +71,8 @@ export class Store {
     genome: null,
     config: new Map(),
     history: new Map(),
+    colonyMeta: null,
+    chronicle: null,
     paused: true,
     speed: 0,
     layers: { food: true, alarm: false, scent: true },
@@ -146,6 +152,24 @@ export class Store {
   applyConfig(c: ConfigFrame): void {
     this.state.config = c.values;
     this.notify();
+  }
+
+  applyColonyMeta(m: ColonyMeta): void {
+    this.state.colonyMeta = m;
+    this.notify();
+  }
+
+  applyChronicle(c: Chronicle): void {
+    this.state.chronicle = c;
+    this.notify();
+  }
+
+  /** The colony's generated name, or a stable fallback before meta arrives. */
+  colonyName(id: number): string {
+    return (
+      this.state.colonyMeta?.colonies.find((c) => c.id === id)?.name ??
+      `colony ${id}`
+    );
   }
 
   clearSelection(): void {

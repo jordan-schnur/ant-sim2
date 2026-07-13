@@ -53,8 +53,9 @@ export function mountInspector(root: HTMLElement, store: Store): void {
       kv.append(a, b);
     };
 
+    row("name", d.name || `#${d.id}`);
     row("id", `#${d.id}`);
-    row("colony", String(d.colony));
+    row("colony", store.colonyName(d.colony));
     row("energy", `${d.energy.toFixed(1)} / ${d.maxEnergy.toFixed(0)}`);
     row("size", d.size.toFixed(2));
     row("age", String(d.age));

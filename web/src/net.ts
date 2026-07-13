@@ -93,6 +93,12 @@ export class Net {
       case "config":
         this.store.applyConfig(f);
         break;
+      case "colonyMeta":
+        this.store.applyColonyMeta(f);
+        break;
+      case "chronicle":
+        this.store.applyChronicle(f);
+        break;
     }
   }
 
