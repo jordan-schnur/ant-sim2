@@ -31,10 +31,27 @@ cargo run -p server --release -- --web web/dist
 
 Pause, single-step, 1x/10x/100x, pan and zoom, toggle the food/alarm/scent
 pheromone layers over the drawn terrain (dirt, standing food, stone, nests),
-click an ant to watch its network fire, and drag the tuning sliders to retune
-the running simulation without recompiling. Save and load a snapshot, or reset
-the world from a seed, all from the left rail. `f` fits the view, `Esc` clears
-the selection, space toggles pause.
+click an ant to watch its network fire, and drag the tuning sliders (behind the
+collapsible **Tuning** header) to retune the running simulation without
+recompiling. Save and load a snapshot, or reset the world from a seed, all from
+the left rail. `f` fits the view, `Esc` clears the selection, space toggles
+pause.
+
+**Reading the world.** Each colony has a generated name and a distinct
+shape-glyph (not just a colour — the shapes are there so a colourblind operator
+can still tell colonies apart). On-map labels name nests and food patches, and
+the selected ant, Prison-Architect style; toggle them with the **labels**
+checkbox, and they fade out when you zoom too far to read them. The
+**Chronicle** panel on the right rail logs the story as it happens — a colony's
+first delivery, its first kill, population milestones, and rolling titles like
+its longest-lived ant and top forager — each attributed to the named ant that
+earned it.
+
+**Editing the world.** Right-click the map for a context menu keyed to what is
+under the cursor: set the standing food at a cell, place or clear stone, spawn
+an ant, inspect the ant there, or — on a nest — rename the colony or top up its
+food store. Edits are commands to the server, applied between ticks, so they
+never race the simulation.
 
 Save, load, and reset are server-side — the client only sends the tag. The
 server flags:
