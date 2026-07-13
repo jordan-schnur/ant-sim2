@@ -82,7 +82,9 @@ pub fn apply_food(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyCtx
 
     if intent.grab && ants.carrying[i] < capacity {
         let want = ctx.cfg.harvest_rate.min(capacity - ants.carrying[i]);
-        ants.carrying[i] += ctx.grid.harvest(c, want);
+        let taken = ctx.grid.harvest(c, want);
+        ants.carrying[i] += taken;
+        ants.food_harvested[i] += taken;
     } else if intent.release && ants.carrying[i] > 0.0 && ctx.grid.nest[c] == NO_NEST {
         ctx.grid.food[c] += ants.carrying[i];
         ants.carrying[i] = 0.0;
@@ -461,6 +463,26 @@ mod tests {
         apply_food(0, &i, ants, &mut ctx);
         assert!((f.ants.carrying[0] - 10.0).abs() < 1e-5);
         assert!((f.grid.food[c] - 99.7).abs() < 1e-4);
+    }
+
+    #[test]
+    fn grabbing_food_credits_food_harvested() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        f.grid.food[c] = 100.0;
+        f.ants.carrying[0] = 0.0;
+        f.ants.food_harvested[0] = 0.0;
+        let i = Intent {
+            grab: true,
+            ..intent()
+        };
+        let (ants, mut ctx) = f.split();
+        apply_food(0, &i, ants, &mut ctx);
+        assert!(f.ants.food_harvested[0] > 0.0, "grab must credit harvest");
+        assert_eq!(
+            f.ants.food_harvested[0], f.ants.carrying[0],
+            "harvested equals what entered cargo this grab"
+        );
     }
 
     #[test]
