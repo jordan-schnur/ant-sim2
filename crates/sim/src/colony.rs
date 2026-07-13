@@ -46,6 +46,15 @@ pub struct ColonyState {
     /// One-shot chronicle flags: latched the first time the milestone happens.
     pub first_delivery_done: bool,
     pub first_kill_done: bool,
+    /// Index into the population-milestone thresholds already announced.
+    pub next_milestone_idx: usize,
+    /// Best `food_delivered` by any single ant ever seen (the TopForager title).
+    pub best_forager_delivered: f32,
+    /// The longevity record: the age and id of the longest-lived ant seen. The
+    /// id gates re-announcing — a single ant aging past its own record every
+    /// tick must not flood the chronicle; only a *new* record-holder does.
+    pub eldest_seen: u64,
+    pub eldest_id: u64,
 }
 
 impl ColonyState {
@@ -65,6 +74,10 @@ impl ColonyState {
             next_lineage_hint: 0,
             first_delivery_done: false,
             first_kill_done: false,
+            next_milestone_idx: 0,
+            best_forager_delivered: 0.0,
+            eldest_seen: 0,
+            eldest_id: 0,
         }
     }
 

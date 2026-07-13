@@ -182,6 +182,9 @@ pub fn apply_combat(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyC
         let scavenged = ctx.cfg.kill_energy_frac * ctx.cfg.max_energy_per_size * ants.size[v];
         let max_e = ants.genome[i].max_energy(ctx.cfg, ants.size[i]);
         ants.energy[i] = (ants.energy[i] + scavenged).min(max_e);
+        if let Some(f) = ants.killed.get_mut(i) {
+            *f = true;
+        }
     }
 }
 

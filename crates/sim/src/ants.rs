@@ -55,6 +55,12 @@ pub struct Ants {
     /// reads go through `is_attacking`.
     #[serde(skip)]
     pub attacking: Vec<bool>,
+
+    /// Landed a *killing* blow this tick. Same contract as `attacking`: derived
+    /// per-tick, not serialised, read through `killed_this_tick` which tolerates
+    /// the empty vector left by a load. Feeds the `FirstKill` chronicle detector.
+    #[serde(skip)]
+    pub killed: Vec<bool>,
 }
 
 impl Ants {
@@ -68,10 +74,18 @@ impl Ants {
         self.attacking.get(i).copied().unwrap_or(false)
     }
 
+    /// Tolerates the empty vector left by deserialisation.
+    #[inline]
+    pub fn killed_this_tick(&self, i: usize) -> bool {
+        self.killed.get(i).copied().unwrap_or(false)
+    }
+
     /// Called at the top of each tick. Also repairs the length after a load.
     pub fn clear_attacking(&mut self) {
         self.attacking.clear();
         self.attacking.resize(self.id.len(), false);
+        self.killed.clear();
+        self.killed.resize(self.id.len(), false);
     }
 
     pub fn len(&self) -> usize {
@@ -112,6 +126,7 @@ impl Ants {
         self.genome.push(s.genome);
         self.alive.push(true);
         self.attacking.push(false);
+        self.killed.push(false);
     }
 
     /// Floored cell.
@@ -163,6 +178,9 @@ impl Ants {
         retain(&mut self.rng, &keep);
         if self.attacking.len() == keep.len() {
             retain(&mut self.attacking, &keep);
+        }
+        if self.killed.len() == keep.len() {
+            retain(&mut self.killed, &keep);
         }
         self.alive.retain(|_| {
             let v = keep[k];

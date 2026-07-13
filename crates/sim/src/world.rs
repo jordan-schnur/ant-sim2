@@ -223,10 +223,121 @@ impl World {
         self.tick_count += 1;
     }
 
+    /// Population thresholds announced as a colony grows.
+    const MILESTONES: [u32; 4] = [10, 25, 50, 100];
+
     /// The event registry. Each block is one detector; add a milestone by adding
     /// a block. Runs in the serial phase, so it cannot perturb determinism.
+    ///
+    /// `FirstTrailFollow` is deliberately not implemented: attributing a delivery
+    /// to trail-following requires threading the delivering cell's food-pheromone
+    /// out of `apply_nest`, which the current apply phase does not expose. It is
+    /// deferred to a follow-up rather than approximated. `EventKind` still
+    /// reserves its wire byte so adding it later needs no format change.
     fn run_chronicle_detectors(&mut self) {
         let tick = self.tick_count;
+        for ci in 0..self.colonies.len() {
+            let cid = self.colonies[ci].id;
+
+            // PopulationMilestone: crossed one or more thresholds this tick.
+            {
+                let pop = self.ants.population(cid);
+                while self.colonies[ci].next_milestone_idx < Self::MILESTONES.len()
+                    && pop >= Self::MILESTONES[self.colonies[ci].next_milestone_idx]
+                {
+                    let m = Self::MILESTONES[self.colonies[ci].next_milestone_idx];
+                    let cname = self.colonies[ci].name.clone();
+                    self.colonies[ci].next_milestone_idx += 1;
+                    let mut flag = false;
+                    self.chronicle.record(&mut flag, crate::chronicle::ChronicleEvent {
+                        tick,
+                        colony: cid,
+                        kind: crate::chronicle::EventKind::PopulationMilestone,
+                        ant_id: None,
+                        ant_name: None,
+                        text: format!("{cname} reached {m} ants"),
+                    });
+                }
+            }
+
+            // FirstKill: this colony landed its first killing blow.
+            if !self.colonies[ci].first_kill_done {
+                let killer = (0..self.ants.len()).find(|&i| {
+                    self.ants.colony[i] == cid && self.ants.killed_this_tick(i)
+                });
+                if let Some(i) = killer {
+                    let id = self.ants.id[i];
+                    let cname = self.colonies[ci].name.clone();
+                    let mut done = self.colonies[ci].first_kill_done;
+                    self.chronicle.record(&mut done, crate::chronicle::ChronicleEvent {
+                        tick,
+                        colony: cid,
+                        kind: crate::chronicle::EventKind::FirstKill,
+                        ant_id: Some(id),
+                        ant_name: Some(crate::names::ant_name(id)),
+                        text: format!("{cname}: first blood"),
+                    });
+                    self.colonies[ci].first_kill_done = done;
+                }
+            }
+
+            // TopForager: a new single-ant delivery record for this colony.
+            {
+                let best = (0..self.ants.len())
+                    .filter(|&i| self.ants.alive[i] && self.ants.colony[i] == cid)
+                    .max_by(|&a, &b| {
+                        self.ants.food_delivered[a].total_cmp(&self.ants.food_delivered[b])
+                    });
+                if let Some(i) = best {
+                    let d = self.ants.food_delivered[i];
+                    if d > self.colonies[ci].best_forager_delivered {
+                        self.colonies[ci].best_forager_delivered = d;
+                        let id = self.ants.id[i];
+                        let cname = self.colonies[ci].name.clone();
+                        let mut flag = false;
+                        self.chronicle.record(&mut flag, crate::chronicle::ChronicleEvent {
+                            tick,
+                            colony: cid,
+                            kind: crate::chronicle::EventKind::TopForager,
+                            ant_id: Some(id),
+                            ant_name: Some(crate::names::ant_name(id)),
+                            text: format!("{cname}: new top forager, {d:.0} delivered"),
+                        });
+                    }
+                }
+            }
+
+            // EldestAnt: a *new individual* out-lives every predecessor. Gated on
+            // id so an ant aging past its own record does not fire every tick.
+            {
+                let oldest = (0..self.ants.len())
+                    .filter(|&i| self.ants.alive[i] && self.ants.colony[i] == cid)
+                    .max_by_key(|&i| self.ants.age[i]);
+                if let Some(i) = oldest {
+                    let age = self.ants.age[i] as u64;
+                    let id = self.ants.id[i];
+                    if age > self.colonies[ci].eldest_seen
+                        && id != self.colonies[ci].eldest_id
+                    {
+                        self.colonies[ci].eldest_seen = age;
+                        self.colonies[ci].eldest_id = id;
+                        let cname = self.colonies[ci].name.clone();
+                        let mut flag = false;
+                        self.chronicle.record(&mut flag, crate::chronicle::ChronicleEvent {
+                            tick,
+                            colony: cid,
+                            kind: crate::chronicle::EventKind::EldestAnt,
+                            ant_id: Some(id),
+                            ant_name: Some(crate::names::ant_name(id)),
+                            text: format!("{cname}: oldest ant yet"),
+                        });
+                    } else if age > self.colonies[ci].eldest_seen {
+                        // Same individual still aging: advance the record silently.
+                        self.colonies[ci].eldest_seen = age;
+                    }
+                }
+            }
+        }
         for ci in 0..self.colonies.len() {
             // FirstDelivery: the colony's store has been fed for the first time.
             if !self.colonies[ci].first_delivery_done
@@ -318,6 +429,30 @@ mod tests {
             food_patch_count: 6,
             ..Config::default()
         }
+    }
+
+    #[test]
+    fn population_milestone_fires_when_a_colony_first_reaches_ten() {
+        // Start above the first milestone so the detector fires on tick 1
+        // regardless of whether the colony grows.
+        let mut w = World::new(
+            &Config {
+                width: 96,
+                height: 96,
+                num_colonies: 2,
+                initial_ants_per_colony: 12,
+                ..Config::default()
+            },
+            1,
+        );
+        w.tick();
+        assert!(
+            w.chronicle.events.iter().any(|e| matches!(
+                e.kind,
+                crate::chronicle::EventKind::PopulationMilestone
+            )),
+            "no population milestone fired for a 12-ant colony"
+        );
     }
 
     #[test]
