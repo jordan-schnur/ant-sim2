@@ -117,6 +117,7 @@ fn emit_protocol_fixtures() {
 
     let act = w.activations(0);
     let traits = w.ants.genome[0].traits.as_array();
+    let detail_name = sim::names::ant_name(w.ants.id[0]);
     encode_ant_detail(
         &mut b,
         &AntDetail {
@@ -135,10 +136,11 @@ fn emit_protocol_fixtures() {
             lineage: w.ants.lineage[0],
             traits,
             act: &act,
+            name: &detail_name,
         },
     );
     write("detail.bin", &b);
-    assert_eq!(b.len(), ANT_DETAIL_LEN);
+    assert_eq!(b.len(), ANT_DETAIL_LEN + 1 + detail_name.len());
 
     let g = Genome::random(&mut Pcg32::new(7, 7));
     encode_ant_genome(&mut b, 42, &g);

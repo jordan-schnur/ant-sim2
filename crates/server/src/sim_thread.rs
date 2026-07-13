@@ -357,6 +357,7 @@ fn publish_detail(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
                 lineage: 0,
                 traits: Traits::from_array([0.0; 8]).as_array(),
                 act: &act,
+                name: "",
             },
         );
         let _ = pubs.detail.send(Arc::new(buf.clone()));
@@ -382,6 +383,7 @@ fn publish_detail(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
             lineage: w.ants.lineage[i],
             traits: w.ants.genome[i].traits.as_array(),
             act: &act,
+            name: &sim::names::ant_name(w.ants.id[i]),
         },
     );
     let _ = pubs.detail.send(Arc::new(buf.clone()));
@@ -523,7 +525,7 @@ mod tests {
         publish_detail(&p, &st, &mut buf);
         assert_eq!(buf[0], protocol::TAG_ANT_DETAIL);
         assert_eq!(buf[10], 0, "alive byte must be false");
-        assert_eq!(buf.len(), protocol::ANT_DETAIL_LEN);
+        assert_eq!(buf.len(), protocol::ANT_DETAIL_LEN + 1, "fixed body plus an empty-name byte");
     }
 
     #[test]

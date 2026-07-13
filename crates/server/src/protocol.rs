@@ -25,6 +25,8 @@ pub const TAG_ANT_DETAIL: u8 = 0x05;
 pub const TAG_ANT_GENOME: u8 = 0x06;
 pub const TAG_CONFIG: u8 = 0x07;
 pub const TAG_TERRAIN: u8 = 0x08;
+pub const TAG_COLONY_META: u8 = 0x09;
+pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 46;
@@ -202,6 +204,13 @@ fn put_u64(b: &mut Vec<u8>, v: u64) {
 #[inline]
 fn put_f32(b: &mut Vec<u8>, v: f32) {
     b.extend_from_slice(&v.to_le_bytes());
+}
+#[inline]
+fn put_str_u8(b: &mut Vec<u8>, s: &str) {
+    let bytes = s.as_bytes();
+    let n = bytes.len().min(255);
+    put_u8(b, n as u8);
+    b.extend_from_slice(&bytes[..n]);
 }
 
 pub fn encode_hello(out: &mut Vec<u8>, w: &World, phero_res_log2: u8) {
@@ -390,6 +399,7 @@ pub struct AntDetail<'a> {
     pub lineage: u32,
     pub traits: [f32; 8],
     pub act: &'a Activations,
+    pub name: &'a str,
 }
 
 pub fn encode_ant_detail(out: &mut Vec<u8>, d: &AntDetail) {
@@ -430,7 +440,43 @@ pub fn encode_ant_detail(out: &mut Vec<u8>, d: &AntDetail) {
     for v in d.act.outputs {
         put_f32(out, v);
     }
+    // The fixed body ends here; `ANT_DETAIL_LEN` pins its length. The name is a
+    // length-prefixed tail, so old fixed offsets are unchanged.
     debug_assert_eq!(out.len(), ANT_DETAIL_LEN);
+    put_str_u8(out, d.name);
+}
+
+/// Colony names. Sent on connect and after reset/load (names change with the
+/// world). See the `0x09` layout in the plan/spec.
+pub fn encode_colony_meta(out: &mut Vec<u8>, w: &World) {
+    out.clear();
+    put_u8(out, TAG_COLONY_META);
+    put_u8(out, w.colonies.len() as u8);
+    for c in &w.colonies {
+        put_u8(out, c.id);
+        put_str_u8(out, &c.name);
+    }
+}
+
+/// The chronicle: a full capped snapshot at the stats cadence. The client
+/// replaces its list wholesale (watch channels are latest-value-wins).
+pub fn encode_chronicle(out: &mut Vec<u8>, w: &World) {
+    out.clear();
+    put_u8(out, TAG_CHRONICLE);
+    put_u16(out, w.chronicle.events.len() as u16);
+    for ev in &w.chronicle.events {
+        put_u64(out, ev.tick);
+        put_u8(out, ev.colony);
+        put_u8(out, ev.kind as u8);
+        let has_ant = ev.ant_id.is_some();
+        put_u8(out, if has_ant { 1 } else { 0 });
+        put_u64(out, ev.ant_id.unwrap_or(0));
+        put_str_u8(out, ev.ant_name.as_deref().unwrap_or(""));
+        let t = ev.text.as_bytes();
+        let n = t.len().min(u16::MAX as usize);
+        put_u16(out, n as u16);
+        out.extend_from_slice(&t[..n]);
+    }
 }
 
 /// Split out of `AntDetail` because weights never change while an ant lives.
@@ -700,13 +746,55 @@ mod tests {
                 lineage: 4,
                 traits: [0.0; 8],
                 act: &act,
+                name: "",
             },
         );
-        assert_eq!(b.len(), ANT_DETAIL_LEN);
+        assert_eq!(b.len(), ANT_DETAIL_LEN + 1, "fixed body plus an empty-name length byte");
         assert_eq!(u64::from_le_bytes(b[1..9].try_into().unwrap()), 7);
         assert_eq!(b[10], 1, "alive byte");
         assert_eq!(u32::from_le_bytes(b[45..49].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(b[49..53].try_into().unwrap()), 4);
+    }
+
+    #[test]
+    fn colony_meta_encodes_tag_count_and_a_name() {
+        let w = World::new(&small(), 1);
+        let mut b = Vec::new();
+        encode_colony_meta(&mut b, &w);
+        assert_eq!(b[0], TAG_COLONY_META);
+        assert_eq!(b[1], 2); // count
+        // id, then a non-zero name length for the first colony.
+        assert_eq!(b[2], 0);
+        assert!(b[3] > 0, "colony 0 has an empty name");
+    }
+
+    #[test]
+    fn chronicle_encodes_tag_and_count() {
+        let w = World::new(&small(), 1);
+        let mut b = Vec::new();
+        encode_chronicle(&mut b, &w);
+        assert_eq!(b[0], TAG_CHRONICLE);
+        // A fresh world has an empty chronicle.
+        assert_eq!(u16::from_le_bytes([b[1], b[2]]), 0);
+    }
+
+    #[test]
+    fn ant_detail_appends_a_length_prefixed_name() {
+        let act = Activations {
+            inputs: [0.0; sim::N_INPUTS],
+            h1: [0.0; sim::N_HIDDEN1],
+            h2: [0.0; sim::N_HIDDEN2],
+            outputs: [0.0; sim::N_OUTPUTS],
+        };
+        let mut b = Vec::new();
+        encode_ant_detail(&mut b, &AntDetail {
+            id: 5, colony: 0, alive: true, x: 1.0, y: 2.0, heading: 0.0,
+            energy: 1.0, max_energy: 1.0, size: 1.0, carrying: 0.0,
+            food_delivered: 0.0, age: 0, lineage: 0,
+            traits: [0.0; 8], act: &act, name: "Wren-5",
+        });
+        assert_eq!(b[ANT_DETAIL_LEN], 6, "name length byte follows the fixed body");
+        assert_eq!(b.len(), ANT_DETAIL_LEN + 1 + 6);
     }
 
     #[test]
@@ -742,6 +830,7 @@ mod tests {
                 lineage: 0,
                 traits: [0.0; 8],
                 act: &act,
+                name: "",
             },
         );
         let out0 = f32::from_le_bytes(b[389..393].try_into().unwrap());
