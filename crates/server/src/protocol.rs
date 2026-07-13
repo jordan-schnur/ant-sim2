@@ -301,7 +301,15 @@ pub fn encode_ants(out: &mut Vec<u8>, w: &World) {
         put_u8(out, w.ants.colony[i]);
         put_u8(out, sz);
         put_u8(out, flags);
-        put_u8(out, 0); // pad, keeps the record 8-byte aligned for the GPU
+        // Heading rides in what was the pad byte: the record stays 8 bytes and
+        // GPU-aligned. Canonical mapping (shared with the ant shader and
+        // headingByteToRadians in sprites.ts):
+        //   byte = (angle + PI) / (2*PI) * 255, angle in [-PI, PI).
+        let a = sim::apply::wrap_angle(w.ants.heading[i]);
+        let h = ((a + std::f32::consts::PI) / (2.0 * std::f32::consts::PI) * 255.0)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        put_u8(out, h);
     }
 }
 
@@ -646,6 +654,26 @@ mod tests {
         assert_eq!(flags(1), FLAG_ATTACKING);
         assert_eq!(flags(2), FLAG_CARRYING | FLAG_ATTACKING);
         assert_eq!(flags(3), 0);
+    }
+
+    #[test]
+    fn heading_is_encoded_in_the_record_pad_byte() {
+        use std::f32::consts::PI;
+        let mut w = World::new(&small(), 1);
+        // 0 rad (facing +x) sits at the middle of the u8 range.
+        w.ants.heading[0] = 0.0;
+        // -PI is the low end of the wrapped range -> byte 0.
+        w.ants.heading[1] = -PI;
+        // Just under +PI is the high end -> byte 255.
+        w.ants.heading[2] = PI - 0.0001;
+
+        let mut b = Vec::new();
+        encode_ants(&mut b, &w);
+        let heading_byte = |i: usize| b[13 + 8 * i + 7];
+
+        assert_eq!(heading_byte(0), 128, "0 rad maps to mid-range");
+        assert_eq!(heading_byte(1), 0, "-PI maps to 0");
+        assert_eq!(heading_byte(2), 255, "just under +PI maps to 255");
     }
 
     #[test]
