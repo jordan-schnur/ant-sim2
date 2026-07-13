@@ -167,6 +167,7 @@ describe("selection", () => {
       size: 1,
       carrying: 0,
       foodDelivered: 0,
+      foodHarvested: 0,
       age: 0,
       lineage: 0,
       traits: new Float32Array(8),

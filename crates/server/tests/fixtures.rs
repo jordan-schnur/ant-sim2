@@ -132,6 +132,7 @@ fn emit_protocol_fixtures() {
             size: w.ants.size[0],
             carrying: w.ants.carrying[0],
             food_delivered: w.ants.food_delivered[0],
+            food_harvested: w.ants.food_harvested[0],
             age: w.ants.age[0],
             lineage: w.ants.lineage[0],
             traits,
