@@ -27,6 +27,7 @@ pub mod config;
 pub mod genome;
 pub mod grid;
 pub mod intent;
+pub mod names;
 pub mod pheromone;
 pub mod reproduce;
 pub mod rng;
