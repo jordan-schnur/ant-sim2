@@ -29,10 +29,24 @@ cargo run -p server --release -- --web web/dist
 # open http://127.0.0.1:8080
 ```
 
-Pause, single-step, 1x/10x/100x, pan and zoom, toggle the pheromone layers,
+Pause, single-step, 1x/10x/100x, pan and zoom, toggle the food/alarm/scent
+pheromone layers over the drawn terrain (dirt, standing food, stone, nests),
 click an ant to watch its network fire, and drag the tuning sliders to retune
-the running simulation without recompiling. `f` fits the view, `Esc` clears the
-selection, space toggles pause.
+the running simulation without recompiling. Save and load a snapshot, or reset
+the world from a seed, all from the left rail. `f` fits the view, `Esc` clears
+the selection, space toggles pause.
+
+Save, load, and reset are server-side — the client only sends the tag. The
+server flags:
+
+```
+--port 8080          # WebSocket + static files
+--seed 1             # world seed
+--ants <n>           # initial ants per colony
+--save snapshot.bin  # path the save/load buttons use
+--load <path>        # come up showing a saved world
+--web web/dist       # built client to serve; omit to serve the socket only
+```
 
 For development, `npm run dev` in `web/` serves the client on :5173 and proxies
 `/ws` to the Rust server on :8080.
