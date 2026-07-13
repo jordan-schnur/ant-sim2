@@ -6,11 +6,23 @@
 
 import { TRAIT_NAMES } from "../protocol.js";
 import type { Store } from "../state.js";
-import { draw as drawNet } from "./nnview.js";
+import { draw as drawNet, hitTest, activationColor } from "./nnview.js";
 import { fitness, DEFAULT_HARVEST_WEIGHT, HARVEST_WEIGHT_FIELD } from "../fitness.js";
-import { tipLabel } from "./tooltips.js";
+import { tipLabel, tipText } from "./tooltips.js";
+import {
+  CHANNEL_ABBR,
+  CHANNELS,
+  OUTPUT_DESC,
+  OUTPUT_LABELS,
+  WHISKER_DIRS,
+  inputLabel,
+  nodeInfo,
+} from "../nnlabels.js";
 
-const OUTPUT_NAMES = ["turn", "throttle", "attack", "grab", "mem0", "mem1", "mem2", "mem3"];
+// The panel rebuilds its whole DOM on every frame (see explorer.ts), so a fresh
+// <details> would snap shut the instant the next frame lands. Remember the
+// operator's open/closed choice out here, where it survives the rebuild.
+let explainerOpen = false;
 
 /** Render the selected ant into `body`, painting its NN into `canvas`. */
 export function renderAntDetail(
@@ -85,15 +97,17 @@ export function renderAntDetail(
   });
   body.append(tkv);
 
+  body.append(inputsSection(d.inputs));
+
   body.append(heading("Outputs"));
+  body.append(caption("what the brain decides each tick"));
   const okv = document.createElement("div");
   okv.className = "kv";
-  OUTPUT_NAMES.forEach((name, i) => {
-    const s = document.createElement("span");
-    s.textContent = name;
+  OUTPUT_LABELS.forEach((name, i) => {
+    okv.append(tipText(name, OUTPUT_DESC[i]));
     const b = document.createElement("b");
-    b.textContent = d.outputs[i].toFixed(3);
-    okv.append(s, b);
+    b.textContent = signed(d.outputs[i]);
+    okv.append(b);
   });
   body.append(okv);
 
@@ -102,6 +116,124 @@ export function renderAntDetail(
   // which is 0 (and forces a 1x1 backing store) until the canvas is in the DOM.
   body.append(canvas);
   paint(canvas, d, store.state.genome?.params ?? null);
+}
+
+/** Signed, 2-decimal formatting for activation values. */
+function signed(v: number): string {
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
+}
+
+/** The Inputs block: a whisker grid plus the interpretable body/memory rows. */
+function inputsSection(inputs: Float32Array): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.append(heading("Inputs"));
+  wrap.append(caption("what the ant senses — hover the network for any single value"));
+  wrap.append(whiskerGrid(inputs));
+
+  // The 14 non-whisker inputs read cleanly as label -> value rows.
+  const kv = document.createElement("div");
+  kv.className = "kv";
+  for (let i = 30; i < inputs.length; i++) {
+    const s = document.createElement("span");
+    s.textContent = inputLabel(i);
+    const b = document.createElement("b");
+    b.textContent = inputs[i].toFixed(2);
+    kv.append(s, b);
+  }
+  wrap.append(kv);
+  return wrap;
+}
+
+/** 5 whisker directions x 6 channels, each cell tinted by its activation. */
+function whiskerGrid(inputs: Float32Array): HTMLElement {
+  const g = document.createElement("div");
+  g.className = "whisker-grid";
+  const cell = (text: string, cls: string): HTMLElement => {
+    const c = document.createElement("div");
+    c.className = cls;
+    c.textContent = text;
+    return c;
+  };
+
+  g.append(cell("", "wg-head")); // empty corner
+  CHANNEL_ABBR.forEach((abbr, ci) => {
+    const h = cell(abbr, "wg-head");
+    h.title = CHANNELS[ci];
+    g.append(h);
+  });
+  WHISKER_DIRS.forEach((dir, w) => {
+    g.append(cell(dir, "wg-dir"));
+    for (let ch = 0; ch < CHANNEL_ABBR.length; ch++) {
+      const v = inputs[w * CHANNEL_ABBR.length + ch];
+      const c = cell(v.toFixed(1), "wg-val");
+      c.style.background = activationColor(v);
+      c.title = `whisker ${dir} · ${CHANNELS[ch]}: ${v.toFixed(2)}`;
+      g.append(c);
+    }
+  });
+  return g;
+}
+
+/**
+ * A hover popover over the network canvas: naming the input or output under the
+ * cursor and its live value is what turns the coloured graph into something you
+ * can read a single wire off of. Attached once (the canvas is persistent);
+ * reads the current ant from the store on each move.
+ */
+export function attachNNPopover(canvas: HTMLCanvasElement, store: Store): void {
+  const pop = document.createElement("div");
+  pop.className = "nn-pop";
+  pop.style.display = "none";
+  document.body.append(pop);
+
+  const hide = () => {
+    pop.style.display = "none";
+  };
+
+  canvas.addEventListener("mousemove", (e) => {
+    const d = store.state.detail;
+    if (!d || !d.alive) return hide();
+    const rect = canvas.getBoundingClientRect();
+    const node = hitTest(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+    if (!node) return hide();
+
+    const info = nodeInfo(node.layer, node.index);
+    const val = [d.inputs, d.h1, d.h2, d.outputs][node.layer][node.index] ?? 0;
+    pop.innerHTML = "";
+    const name = document.createElement("div");
+    name.className = "nn-pop-name";
+    name.textContent = info.label;
+    const v = document.createElement("div");
+    v.className = "nn-pop-val";
+    v.textContent = signed(val);
+    pop.append(name, v);
+    if (info.desc) {
+      const desc = document.createElement("div");
+      desc.className = "nn-pop-desc";
+      desc.textContent = info.desc;
+      pop.append(desc);
+    }
+    // Output nodes sit at the canvas's right edge, so a popover placed to the
+    // right of the cursor clips off-screen exactly where it is most wanted.
+    // Measure it, then flip left/up whenever the default corner would overflow.
+    pop.style.display = "block";
+    pop.style.left = "0";
+    pop.style.top = "0";
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const left = e.clientX + 14 + w > window.innerWidth ? e.clientX - 14 - w : e.clientX + 14;
+    const top = e.clientY + 14 + h > window.innerHeight ? e.clientY - 14 - h : e.clientY + 14;
+    pop.style.left = `${Math.max(4, left)}px`;
+    pop.style.top = `${Math.max(4, top)}px`;
+  });
+  canvas.addEventListener("mouseleave", hide);
+}
+
+function caption(text: string): HTMLElement {
+  const p = document.createElement("div");
+  p.className = "caption";
+  p.textContent = text;
+  return p;
 }
 
 function muted(text: string): HTMLElement {
@@ -121,6 +253,10 @@ function heading(text: string): HTMLElement {
 function evolutionExplainer(): HTMLElement {
   const d = document.createElement("details");
   d.className = "explainer";
+  d.open = explainerOpen;
+  d.addEventListener("toggle", () => {
+    explainerOpen = d.open;
+  });
   const s = document.createElement("summary");
   s.textContent = "How evolution works";
   const p = document.createElement("p");

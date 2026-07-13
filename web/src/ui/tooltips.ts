@@ -34,9 +34,13 @@ export const TOOLTIPS: Record<string, string> = {
 
 /** A label span that shows its tooltip on hover. `key` selects the copy. */
 export function tipLabel(text: string, key: string): HTMLSpanElement {
+  return tipText(text, TOOLTIPS[key]);
+}
+
+/** Like `tipLabel` but with the tooltip copy passed in directly. */
+export function tipText(text: string, tip: string | undefined): HTMLSpanElement {
   const el = document.createElement("span");
   el.textContent = text;
-  const tip = TOOLTIPS[key];
   if (tip) {
     el.className = "tip";
     el.setAttribute("data-tip", tip);

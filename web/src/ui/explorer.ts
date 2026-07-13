@@ -8,7 +8,7 @@
 
 import type { Store } from "../state.js";
 import { worldSummary } from "../state.js";
-import { renderAntDetail } from "./inspector.js";
+import { renderAntDetail, attachNNPopover } from "./inspector.js";
 import { sparkline } from "./colony.js";
 import { tileReadout } from "../tile.js";
 import { tipLabel } from "./tooltips.js";
@@ -21,6 +21,7 @@ export function mountExplorer(pane: HTMLElement, store: Store): void {
   // The NN canvas is persistent (reused across renders) so it is created once.
   const nn = document.createElement("canvas");
   nn.id = "nn";
+  attachNNPopover(nn, store);
   const chart = document.createElement("canvas");
   chart.className = "explorer-chart";
   pane.append(body);

@@ -8,6 +8,7 @@
  */
 
 import { N_HIDDEN1, N_HIDDEN2, N_INPUTS, N_OUTPUTS } from "../protocol.js";
+import { INPUT_GROUPS, OUTPUT_LABELS } from "../nnlabels.js";
 
 /**
  * Weights below this are not drawn. With all 1,088 edges visible the picture is
@@ -37,24 +38,66 @@ export interface Node {
  * Four columns, each vertically centred. Returns nodes in layer-major order so
  * `nodes[layerStart[l] + i]` is neuron `i` of layer `l`.
  */
-export function layout(width: number, height: number, pad = 18): { nodes: Node[]; layerStart: number[] } {
+export function layout(
+  width: number,
+  height: number,
+  pad = 18,
+  padTop = pad,
+  padLeft = pad,
+  padRight = pad,
+): { nodes: Node[]; layerStart: number[] } {
   const nodes: Node[] = [];
   const layerStart: number[] = [];
-  const usableW = Math.max(1, width - pad * 2);
-  const usableH = Math.max(1, height - pad * 2);
+  const usableW = Math.max(1, width - padLeft - padRight);
+  const usableH = Math.max(1, height - padTop - pad);
 
   LAYER_SIZES.forEach((n, layer) => {
     layerStart.push(nodes.length);
-    const x = pad + (usableW * layer) / (LAYER_SIZES.length - 1);
+    const x = padLeft + (usableW * layer) / (LAYER_SIZES.length - 1);
     // A single-neuron layer would divide by zero; centre it instead.
     const step = n > 1 ? usableH / (n - 1) : 0;
-    const y0 = n > 1 ? pad : pad + usableH / 2;
+    const y0 = n > 1 ? padTop : padTop + usableH / 2;
     for (let i = 0; i < n; i++) {
       nodes.push({ x, y: y0 + step * i, layer, index: i });
     }
   });
 
   return { nodes, layerStart };
+}
+
+/** Padding used by `draw`, shared with `hitTest` so hover math matches pixels. */
+const PAD = 18;
+const PAD_TOP = 30; // room for the column headers
+const PAD_LEFT = 52; // room for the input-group labels
+const PAD_RIGHT = 18;
+
+/**
+ * Nearest node to a CSS-pixel point, or null if none is within `maxDist`. The
+ * caller passes the canvas's CSS size (not its backing-store size) so the hit
+ * math lines up with mouse coordinates. Hidden nodes are skipped — they carry
+ * no operator-facing meaning, so a hover on one should fall through.
+ */
+export function hitTest(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  maxDist = 10,
+): Node | null {
+  const { nodes } = layout(width, height, PAD, PAD_TOP, PAD_LEFT, PAD_RIGHT);
+  let best: Node | null = null;
+  let bestD = maxDist * maxDist;
+  for (const n of nodes) {
+    if (n.layer === 1 || n.layer === 2) continue;
+    const dx = n.x - x;
+    const dy = n.y - y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = n;
+    }
+  }
+  return best;
 }
 
 /** Signed diverging fill: blue negative, near-black at zero, red positive. */
@@ -97,7 +140,7 @@ export function draw(
     return;
   }
 
-  const { nodes, layerStart } = layout(width, height);
+  const { nodes, layerStart } = layout(width, height, PAD, PAD_TOP, PAD_LEFT, PAD_RIGHT);
   const acts = [act.inputs, act.h1, act.h2, act.outputs];
 
   // Edges first, so nodes sit on top of them.
@@ -140,4 +183,39 @@ export function draw(
       ctx.stroke();
     }
   }
+
+  drawLabels(ctx, nodes, layerStart);
+}
+
+/** Column headers, input-group labels down the left, and the 8 output names. */
+function drawLabels(ctx: CanvasRenderingContext2D, nodes: Node[], layerStart: number[]): void {
+  ctx.fillStyle = "#8a8a96";
+  ctx.font = "10px ui-monospace, monospace";
+
+  // Column headers, centred over each column.
+  const headers = ["inputs", "hidden", "hidden", "outputs"];
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  headers.forEach((h, l) => {
+    ctx.fillText(h, nodes[layerStart[l]].x, 12);
+  });
+
+  // Input-group labels, right-aligned in the left margin, at each run's centre.
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (const g of INPUT_GROUPS) {
+    const first = nodes[layerStart[0] + g.start];
+    const last = nodes[layerStart[0] + g.start + g.len - 1];
+    const cy = (first.y + last.y) / 2;
+    ctx.fillText(g.name, first.x - 6, cy);
+  }
+
+  // Output names, right-aligned just left of each output node.
+  ctx.fillStyle = "#c8c8d0";
+  const outStart = layerStart[3];
+  OUTPUT_LABELS.forEach((name, i) => {
+    const n = nodes[outStart + i];
+    ctx.fillText(name, n.x - 8, n.y);
+  });
+  ctx.textAlign = "left";
 }
