@@ -4,12 +4,21 @@
  */
 
 import { Net, socketUrl } from "./net.js";
-import { cmdClearSelection, cmdSelectAt } from "./protocol.js";
+import {
+  cmdAddToStore,
+  cmdClearSelection,
+  cmdRenameColony,
+  cmdSelectAt,
+  cmdSetFood,
+  cmdSetStone,
+  cmdSpawnAnt,
+} from "./protocol.js";
 import { Store } from "./state.js";
 import { WorldRenderer } from "./render/world.js";
 import { mountChronicle } from "./ui/chronicle.js";
 import { mountColonies } from "./ui/colony.js";
 import { mountControls } from "./ui/controls.js";
+import { openContextMenu, type MenuItem } from "./ui/contextmenu.js";
 import { mountInspector } from "./ui/inspector.js";
 
 /** A drag beyond this many pixels is a pan, not a click on an ant. */
@@ -119,6 +128,17 @@ function attachPointer(r: WorldRenderer): void {
     net.send(cmdSelectAt(w.x, w.y));
   });
 
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * r.dpr;
+    const py = (e.clientY - rect.top) * r.dpr;
+    const wp = r.camera.screenToWorld(px, py, r.viewW, r.viewH);
+    const h = store.state.hello;
+    if (h && (wp.x < 0 || wp.y < 0 || wp.x >= h.width || wp.y >= h.height)) return;
+    openContextMenu(e.clientX, e.clientY, menuItemsFor(wp.x, wp.y));
+  });
+
   canvas.addEventListener(
     "wheel",
     (e) => {
@@ -145,6 +165,81 @@ function attachPointer(r: WorldRenderer): void {
       net.send(cmdClearSelection());
     }
   });
+}
+
+/**
+ * The nest colony under a world cell, from the latest terrain frame's B
+ * channel (255 = no nest), or null. Lets the menu default colony-scoped edits
+ * to the colony you right-clicked on.
+ */
+function nestColonyAt(x: number, y: number): number | null {
+  const t = store.state.terrain;
+  if (!t) return null;
+  const tx = Math.floor(x / t.factor);
+  const ty = Math.floor(y / t.factor);
+  if (tx < 0 || ty < 0 || tx >= t.w || ty >= t.h) return null;
+  const nest = t.rgba[(ty * t.w + tx) * 4 + 2];
+  return nest === 255 ? null : nest;
+}
+
+/** The right-click menu for a world position, tailored to what is under it. */
+function menuItemsFor(x: number, y: number): MenuItem[] {
+  const colony = nestColonyAt(x, y);
+  const items: MenuItem[] = [
+    {
+      label: "Set food here…",
+      editor: {
+        placeholder: "amount",
+        initial: "100",
+        apply: (v) => {
+          const a = Number(v);
+          if (Number.isFinite(a)) net.send(cmdSetFood(x, y, a));
+        },
+      },
+    },
+    { label: "Place stone", onClick: () => net.send(cmdSetStone(x, y, true)) },
+    { label: "Clear stone", onClick: () => net.send(cmdSetStone(x, y, false)) },
+    {
+      label: "Spawn ant here…",
+      editor: {
+        placeholder: "colony id",
+        initial: String(colony ?? 0),
+        apply: (v) => {
+          const c = Number(v);
+          if (Number.isInteger(c) && c >= 0) net.send(cmdSpawnAnt(x, y, c));
+        },
+      },
+    },
+    { label: "Inspect ant here", onClick: () => net.send(cmdSelectAt(x, y)) },
+  ];
+
+  // Colony-scoped edits only make sense when a nest was clicked.
+  if (colony !== null) {
+    items.push(
+      {
+        label: `Add to ${store.colonyName(colony)}'s store…`,
+        editor: {
+          placeholder: "amount",
+          initial: "40",
+          apply: (v) => {
+            const a = Number(v);
+            if (Number.isFinite(a)) net.send(cmdAddToStore(colony, a));
+          },
+        },
+      },
+      {
+        label: `Rename ${store.colonyName(colony)}…`,
+        editor: {
+          placeholder: "new name",
+          initial: store.colonyName(colony),
+          apply: (v) => {
+            if (v.trim()) net.send(cmdRenameColony(colony, v.trim()));
+          },
+        },
+      },
+    );
+  }
+  return items;
 }
 
 function frame(): void {

@@ -154,9 +154,11 @@ fn emit_protocol_fixtures() {
     let colony_count = w.colonies.len();
     let colony0_name = w.colonies[0].name.clone();
 
-    // Hand-insert one event so the fixture exercises a populated chronicle
-    // regardless of whether the short fixture world happens to deliver.
+    // Exactly one hand-inserted event so the fixture exercises a populated
+    // chronicle deterministically. The 50-tick world's detectors may have
+    // already logged real events; clear them so the wire test pins a known one.
     let chron_ant = w.ants.id[0];
+    w.chronicle.events.clear();
     w.chronicle.record(&mut false, sim::chronicle::ChronicleEvent {
         tick: 5,
         colony: 1,

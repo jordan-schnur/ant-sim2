@@ -31,9 +31,11 @@ import {
   TAG_TERRAIN,
   TAG_STATS,
   antAt,
+  cmdRenameColony,
   cmdReset,
   cmdSelectAt,
   cmdSetConfig,
+  cmdSetFood,
   cmdSetPaused,
   decode,
 } from "../src/protocol.js";
@@ -393,6 +395,24 @@ describe("commands", () => {
     expect(v.getUint8(0)).toBe(0x0a);
     expect(v.getBigUint64(1, true)).toBe(99n);
     expect(b.byteLength).toBe(9);
+  });
+
+  it("encodes set_food as tag + three little-endian f32", () => {
+    const b = cmdSetFood(1.5, 2.5, 50);
+    const v = new DataView(b.buffer);
+    expect(v.getUint8(0)).toBe(0x0b);
+    expect(v.getFloat32(1, true)).toBe(1.5);
+    expect(v.getFloat32(5, true)).toBe(2.5);
+    expect(v.getFloat32(9, true)).toBe(50);
+    expect(b.byteLength).toBe(13);
+  });
+
+  it("encodes rename_colony as tag + colony + length-prefixed name", () => {
+    const b = cmdRenameColony(3, "Ants");
+    expect(b[0]).toBe(0x0e);
+    expect(b[1]).toBe(3);
+    expect(new TextDecoder().decode(b.slice(2))).toBe("Ants");
+    expect(b.byteLength).toBe(2 + 4);
   });
 });
 
