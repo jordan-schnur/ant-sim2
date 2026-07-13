@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Net } from "../src/net.js";
-import { HISTORY_LEN, Store } from "../src/state.js";
+import { HISTORY_LEN, Store, worldSummary } from "../src/state.js";
 import type { ColonyStat, Hello } from "../src/protocol.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -237,11 +237,11 @@ describe("playback state", () => {
 describe("colony selection", () => {
   it("selects and clears the in-world colony popover", () => {
     const s = new Store();
-    expect(s.state.selectedColony).toBe(null);
+    expect(s.selectedColony()).toBe(null);
     s.selectColony(3);
-    expect(s.state.selectedColony).toBe(3);
+    expect(s.selectedColony()).toBe(3);
     s.clearColony();
-    expect(s.state.selectedColony).toBe(null);
+    expect(s.selectedColony()).toBe(null);
   });
 
   it("clearSelection also dismisses the colony popover", () => {
@@ -250,7 +250,7 @@ describe("colony selection", () => {
     const s = new Store();
     s.selectColony(1);
     s.clearSelection();
-    expect(s.state.selectedColony).toBe(null);
+    expect(s.selectedColony()).toBe(null);
   });
 
   it("caches nest centroids from the terrain frame", () => {
@@ -262,5 +262,34 @@ describe("colony selection", () => {
     rgba[2 * 4 + 2] = 255;
     s.applyTerrain({ kind: "terrain", w: 2, h: 2, factor: 4, rgba, tick: 5 } as never);
     expect(s.state.nestCentroids.get(0)).toEqual({ x: 6, y: 6 });
+  });
+});
+
+describe("selection + tabs", () => {
+  it("selecting an entity records it and switches to the explorer tab", () => {
+    const s = new Store();
+    s.selectTile(3, 4);
+    expect(s.state.selection).toEqual({ kind: "tile", x: 3, y: 4 });
+    expect(s.state.activeTab).toBe("explorer");
+  });
+  it("selectedColony() reflects a colony selection and nothing else", () => {
+    const s = new Store();
+    s.selectColony(2);
+    expect(s.selectedColony()).toBe(2);
+    s.selectTile(0, 0);
+    expect(s.selectedColony()).toBeNull();
+  });
+  it("clearSelection wipes selection, detail, genome", () => {
+    const s = new Store();
+    s.selectAnt();
+    s.clearSelection();
+    expect(s.state.selection).toBeNull();
+  });
+  it("worldSummary sums pop, store, delivered", () => {
+    const sum = worldSummary([
+      { id: 0, population: 3, store: 10, deliveredTotal: 100 },
+      { id: 1, population: 4, store: 5, deliveredTotal: 250 },
+    ] as never);
+    expect(sum).toEqual({ pop: 7, store: 15, delivered: 350 });
   });
 });

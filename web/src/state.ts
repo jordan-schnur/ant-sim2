@@ -27,6 +27,12 @@ export const HISTORY_LEN = 600;
 
 export type Speed = 0 | 1 | 2;
 
+export type Selection =
+  | { kind: "ant" }
+  | { kind: "colony"; id: number }
+  | { kind: "tile"; x: number; y: number }
+  | null;
+
 export interface ColonyHistory {
   tick: number[];
   population: number[];
@@ -47,8 +53,10 @@ export interface State {
   /** Nest centroid per colony, in world cells. Recomputed on each terrain
    * frame; drives the camera snap and the in-world colony popover. */
   nestCentroids: Map<number, { x: number; y: number }>;
-  /** The colony whose in-world stats popover is open, or null. */
-  selectedColony: number | null;
+  /** What the Explorer and in-world popover are focused on. */
+  selection: Selection;
+  /** Which right-rail tab is shown. Selecting anything flips it to explorer. */
+  activeTab: "colonies" | "explorer";
   config: Map<number, number>;
   history: Map<number, ColonyHistory>;
   colonyMeta: ColonyMeta | null;
@@ -77,7 +85,8 @@ export class Store {
     detail: null,
     genome: null,
     nestCentroids: new Map(),
-    selectedColony: null,
+    selection: null,
+    activeTab: "colonies",
     config: new Map(),
     history: new Map(),
     colonyMeta: null,
@@ -185,23 +194,46 @@ export class Store {
     );
   }
 
-  clearSelection(): void {
-    this.state.detail = null;
-    this.state.genome = null;
-    this.state.selectedColony = null;
+  selectAnt(): void {
+    this.state.selection = { kind: "ant" };
+    this.state.activeTab = "explorer";
     this.notify();
   }
 
   /** Open the in-world stats popover for a colony (clicking its nest). */
   selectColony(id: number): void {
-    this.state.selectedColony = id;
+    this.state.selection = { kind: "colony", id };
+    this.state.activeTab = "explorer";
     this.notify();
   }
 
-  clearColony(): void {
-    if (this.state.selectedColony === null) return;
-    this.state.selectedColony = null;
+  selectTile(x: number, y: number): void {
+    this.state.selection = { kind: "tile", x, y };
+    this.state.activeTab = "explorer";
     this.notify();
+  }
+
+  /** The colony id iff a colony is selected — for the in-world colony popover. */
+  selectedColony(): number | null {
+    return this.state.selection?.kind === "colony" ? this.state.selection.id : null;
+  }
+
+  setTab(tab: State["activeTab"]): void {
+    this.state.activeTab = tab;
+    this.notify();
+  }
+
+  clearSelection(): void {
+    this.state.detail = null;
+    this.state.genome = null;
+    this.state.selection = null;
+    this.notify();
+  }
+
+  // TODO(task 9): main.ts still calls clearColony() directly; once it is
+  // updated to call clearSelection() this alias can go away.
+  clearColony(): void {
+    this.clearSelection();
   }
 
   setPaused(p: boolean): void {
@@ -229,4 +261,23 @@ export class Store {
 function push(a: number[], v: number): void {
   a.push(v);
   if (a.length > HISTORY_LEN) a.shift();
+}
+
+export interface WorldSummary {
+  pop: number;
+  store: number;
+  delivered: number;
+}
+
+/** All-colony totals, for the Explorer's default (nothing-selected) view. */
+export function worldSummary(stats: ColonyStat[]): WorldSummary {
+  let pop = 0;
+  let store = 0;
+  let delivered = 0;
+  for (const c of stats) {
+    pop += c.population;
+    store += c.store;
+    delivered += c.deliveredTotal;
+  }
+  return { pop, store, delivered };
 }

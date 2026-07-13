@@ -29,7 +29,7 @@ export class ColonyPanel {
   }
 
   update(camera: Camera, viewW: number, viewH: number, dpr: number, store: Store): void {
-    const id = store.state.selectedColony;
+    const id = store.selectedColony();
     const centroid = id === null ? undefined : store.state.nestCentroids.get(id);
     if (id === null || !centroid) {
       this.root.style.display = "none";

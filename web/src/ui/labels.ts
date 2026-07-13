@@ -82,7 +82,7 @@ export class LabelOverlay {
     for (const [colony, n] of store.state.nestCentroids) {
       // The open popover already names this nest; a label under it just doubles
       // the text and fights the popover's pointer.
-      if (colony === store.state.selectedColony) continue;
+      if (colony === store.selectedColony()) continue;
       anchors.push({
         key: `nest-${colony}`,
         wx: n.x,
