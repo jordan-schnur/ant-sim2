@@ -46,6 +46,7 @@ pub struct ColonyState {
     /// One-shot chronicle flags: latched the first time the milestone happens.
     pub first_delivery_done: bool,
     pub first_kill_done: bool,
+    pub first_trail_follow_done: bool,
     /// Index into the population-milestone thresholds already announced.
     pub next_milestone_idx: usize,
     /// Best `food_delivered` by any single ant ever seen (the TopForager title).
@@ -74,6 +75,7 @@ impl ColonyState {
             next_lineage_hint: 0,
             first_delivery_done: false,
             first_kill_done: false,
+            first_trail_follow_done: false,
             next_milestone_idx: 0,
             best_forager_delivered: 0.0,
             eldest_seen: 0,

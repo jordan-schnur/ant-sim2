@@ -313,11 +313,10 @@ impl World {
     /// The event registry. Each block is one detector; add a milestone by adding
     /// a block. Runs in the serial phase, so it cannot perturb determinism.
     ///
-    /// `FirstTrailFollow` is deliberately not implemented: attributing a delivery
-    /// to trail-following requires threading the delivering cell's food-pheromone
-    /// out of `apply_nest`, which the current apply phase does not expose. It is
-    /// deferred to a follow-up rather than approximated. `EventKind` still
-    /// reserves its wire byte so adding it later needs no format change.
+    /// `FirstTrailFollow` reads the transient `Ants::followed_trail` flag, set in
+    /// `apply_food` when an ant grabs food on a cell that already carried a
+    /// nestmate's trail (see `TRAIL_FOLLOW_THRESHOLD`). The flag is per-tick and
+    /// not serialised, so it costs nothing in the wire format.
     fn run_chronicle_detectors(&mut self) {
         let tick = self.tick_count;
         for ci in 0..self.colonies.len() {
@@ -362,6 +361,28 @@ impl World {
                         text: format!("{cname}: first blood"),
                     });
                     self.colonies[ci].first_kill_done = done;
+                }
+            }
+
+            // FirstTrailFollow: an ant of this colony reached food by following
+            // a nestmate's scent trail for the first time.
+            if !self.colonies[ci].first_trail_follow_done {
+                let follower = (0..self.ants.len()).find(|&i| {
+                    self.ants.colony[i] == cid && self.ants.followed_trail_this_tick(i)
+                });
+                if let Some(i) = follower {
+                    let id = self.ants.id[i];
+                    let cname = self.colonies[ci].name.clone();
+                    let mut done = self.colonies[ci].first_trail_follow_done;
+                    self.chronicle.record(&mut done, crate::chronicle::ChronicleEvent {
+                        tick,
+                        colony: cid,
+                        kind: crate::chronicle::EventKind::FirstTrailFollow,
+                        ant_id: Some(id),
+                        ant_name: Some(crate::names::ant_name(id)),
+                        text: format!("{cname}: followed the scent to food"),
+                    });
+                    self.colonies[ci].first_trail_follow_done = done;
                 }
             }
 
@@ -566,6 +587,36 @@ mod tests {
             )),
             "no population milestone fired for a 12-ant colony"
         );
+    }
+
+    #[test]
+    fn first_trail_follow_fires_once_and_latches() {
+        let mut w = World::new(&small(), 1);
+        w.tick(); // populate the ant arrays and size the transient flags
+
+        // Make ant 0 look like it grabbed food on a nestmate's trail this tick.
+        let cid = w.ants.colony[0];
+        w.ants.followed_trail[0] = true;
+        let ci = w.colonies.iter().position(|c| c.id == cid).unwrap();
+        w.colonies[ci].first_trail_follow_done = false;
+
+        w.run_chronicle_detectors();
+        let count = |w: &World| {
+            w.chronicle
+                .events
+                .iter()
+                .filter(|e| {
+                    e.colony == cid
+                        && matches!(e.kind, crate::chronicle::EventKind::FirstTrailFollow)
+                })
+                .count()
+        };
+        assert_eq!(count(&w), 1, "the first trail-follow must be chronicled");
+        assert!(w.colonies[ci].first_trail_follow_done, "and it must latch");
+
+        // A second pass with the flag still set adds nothing: the latch holds.
+        w.run_chronicle_detectors();
+        assert_eq!(count(&w), 1, "the beat is a one-shot 'first'");
     }
 
     #[test]

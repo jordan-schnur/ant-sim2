@@ -73,6 +73,14 @@ pub fn apply_movement(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut Appl
     ants.energy[i] -= ctx.cfg.move_cost * intent.speed;
 }
 
+/// A food-trail reading at or above this counts as "a trail led here": enough
+/// to mean a nestmate recently walked this cell laden, not mere evaporated
+/// residue. A laden ant deposits `food_trail_emission * carrying` per tick, so
+/// at the defaults (emission 2.0) this is roughly one recent passage carrying a
+/// few units of food. It gates the `FirstTrailFollow` chronicle beat, which is
+/// narrative, not physics — a heuristic threshold is appropriate.
+pub const TRAIL_FOLLOW_THRESHOLD: f32 = 5.0;
+
 /// Grab from the ground, or drop onto it. Nest tiles are handled by
 /// `apply_nest`, so releasing on one is a no-op rather than a food pile.
 pub fn apply_food(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyCtx) {
@@ -81,10 +89,20 @@ pub fn apply_food(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyCtx
     let capacity = ants.genome[i].traits.carry_capacity;
 
     if intent.grab && ants.carrying[i] < capacity {
+        // Read the trail *before* this ant's own deposit for the tick, which
+        // lands later in `deposit_passive`: a positive reading here is a trail
+        // laid by others, so grabbing on it means this ant followed a trail to
+        // food rather than stumbling onto it.
+        let on_trail = ctx.phero.food[c] >= TRAIL_FOLLOW_THRESHOLD;
         let want = ctx.cfg.harvest_rate.min(capacity - ants.carrying[i]);
         let taken = ctx.grid.harvest(c, want);
         ants.carrying[i] += taken;
         ants.food_harvested[i] += taken;
+        if taken > 0.0 && on_trail {
+            if let Some(f) = ants.followed_trail.get_mut(i) {
+                *f = true;
+            }
+        }
     } else if intent.release && ants.carrying[i] > 0.0 && ctx.grid.nest[c] == NO_NEST {
         ctx.grid.food[c] += ants.carrying[i];
         ants.carrying[i] = 0.0;
@@ -485,6 +503,55 @@ mod tests {
         assert_eq!(
             f.ants.food_harvested[0], f.ants.carrying[0],
             "harvested equals what entered cargo this grab"
+        );
+    }
+
+    #[test]
+    fn grabbing_on_a_trail_cell_flags_a_trail_follow() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        f.grid.food[c] = 100.0;
+        f.phero.food[c] = TRAIL_FOLLOW_THRESHOLD + 1.0;
+        let i = Intent {
+            grab: true,
+            ..intent()
+        };
+        let (ants, mut ctx) = f.split();
+        apply_food(0, &i, ants, &mut ctx);
+        assert!(
+            f.ants.followed_trail_this_tick(0),
+            "grabbing on an established trail is a trail-follow"
+        );
+    }
+
+    #[test]
+    fn grabbing_without_a_trail_is_not_a_follow() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        f.grid.food[c] = 100.0; // no food pheromone: virgin food
+        let i = Intent {
+            grab: true,
+            ..intent()
+        };
+        let (ants, mut ctx) = f.split();
+        apply_food(0, &i, ants, &mut ctx);
+        assert!(!f.ants.followed_trail_this_tick(0), "the trailblazer follows nothing");
+    }
+
+    #[test]
+    fn a_trail_over_empty_ground_is_not_a_follow() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        f.phero.food[c] = TRAIL_FOLLOW_THRESHOLD + 1.0; // a trail, but no food to grab
+        let i = Intent {
+            grab: true,
+            ..intent()
+        };
+        let (ants, mut ctx) = f.split();
+        apply_food(0, &i, ants, &mut ctx);
+        assert!(
+            !f.ants.followed_trail_this_tick(0),
+            "no food taken means no follow, however strong the trail"
         );
     }
 

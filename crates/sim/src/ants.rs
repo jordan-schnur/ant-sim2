@@ -61,6 +61,14 @@ pub struct Ants {
     /// the empty vector left by a load. Feeds the `FirstKill` chronicle detector.
     #[serde(skip)]
     pub killed: Vec<bool>,
+
+    /// Grabbed food this tick from a cell that already carried a food trail laid
+    /// by nestmates — i.e. this ant reached food by following a scent trail
+    /// rather than blundering onto it. Same contract as `killed`: derived
+    /// per-tick, not serialised, read through `followed_trail_this_tick`. Feeds
+    /// the `FirstTrailFollow` chronicle detector.
+    #[serde(skip)]
+    pub followed_trail: Vec<bool>,
 }
 
 impl Ants {
@@ -80,12 +88,20 @@ impl Ants {
         self.killed.get(i).copied().unwrap_or(false)
     }
 
+    /// Tolerates the empty vector left by deserialisation.
+    #[inline]
+    pub fn followed_trail_this_tick(&self, i: usize) -> bool {
+        self.followed_trail.get(i).copied().unwrap_or(false)
+    }
+
     /// Called at the top of each tick. Also repairs the length after a load.
     pub fn clear_attacking(&mut self) {
         self.attacking.clear();
         self.attacking.resize(self.id.len(), false);
         self.killed.clear();
         self.killed.resize(self.id.len(), false);
+        self.followed_trail.clear();
+        self.followed_trail.resize(self.id.len(), false);
     }
 
     pub fn len(&self) -> usize {
@@ -127,6 +143,7 @@ impl Ants {
         self.alive.push(true);
         self.attacking.push(false);
         self.killed.push(false);
+        self.followed_trail.push(false);
     }
 
     /// Floored cell.
@@ -181,6 +198,9 @@ impl Ants {
         }
         if self.killed.len() == keep.len() {
             retain(&mut self.killed, &keep);
+        }
+        if self.followed_trail.len() == keep.len() {
+            retain(&mut self.followed_trail, &keep);
         }
         self.alive.retain(|_| {
             let v = keep[k];
