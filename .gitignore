@@ -5,3 +5,6 @@ snapshot.bin
 # Tooling artifacts
 .codegraph/
 .playwright-mcp/
+
+# SDD scratch (briefs, reports, review packages, progress ledger)
+.superpowers/
