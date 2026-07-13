@@ -64,6 +64,7 @@ fn fixture_world() -> World {
     w.ants.size[0] = 1.25;
     w.ants.lineage[0] = 5;
     w.ants.food_delivered[0] = 9.75;
+    w.ants.food_harvested[0] = 6.5;
     w.ants.age[0] = 37;
 
     w.colonies[0].store = 123.5;
@@ -182,7 +183,7 @@ fn emit_protocol_fixtures() {
             "  \"phero\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"firstTexel\": [{}, {}, {}, {}], \"brightestScent\": {{ \"texel\": {}, \"value\": {}, \"owner\": {} }} }},\n",
             "  \"terrain\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"stoneTexels\": {}, \"foodTexels\": {}, \"nestTexels\": {}, \"maxFood\": {}, \"maxStone\": {} }},\n",
             "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"floorSpawns\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
-            "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
+            "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"foodHarvested\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
             "  \"genome\": {{ \"id\": 42, \"nParams\": {}, \"param0\": {} }},\n",
             "  \"config\": {{ \"count\": {}, \"field0\": {} }},\n",
             "  \"colonyMeta\": {{ \"count\": {}, \"name0\": \"{}\" }},\n",
@@ -228,6 +229,7 @@ fn emit_protocol_fixtures() {
         w.ants.y[0],
         w.ants.age[0],
         w.ants.lineage[0],
+        w.ants.food_harvested[0],
         traits[0],
         traits[7],
         act.inputs[0],
@@ -320,6 +322,7 @@ fn emit_protocol_fixtures() {
         w.ants.energy[0],
         w.ants.heading[0],
         w.ants.food_delivered[0],
+        w.ants.food_harvested[0],
     ];
     for i in 0..scalars.len() {
         for j in (i + 1)..scalars.len() {

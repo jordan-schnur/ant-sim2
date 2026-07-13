@@ -38,7 +38,6 @@ export function mountExplorer(pane: HTMLElement, store: Store): void {
 
     if (sel?.kind === "ant") {
       renderAntDetail(body, nn, store);
-      body.append(nn);
       return;
     }
 

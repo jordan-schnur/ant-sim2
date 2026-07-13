@@ -16,8 +16,9 @@ export const TOOLTIPS: Record<string, string> = {
   generation: "Lineage depth — how many births deep this line is.",
   carrying: "Food the ant is holding, not yet banked at a nest.",
   fitness:
-    "This ant's success: food carried home (delivered) plus a small 2% credit " +
-    "for food it is still holding. Fitter ants are chosen as parents more often.",
+    "An ant's success: food carried home (delivered) plus a small credit " +
+    "(harvest_weight, ~0.02) for all the food it has ever picked up. Fitter " +
+    "ants are chosen as parents more often.",
   harvested: "Lifetime food this ant has picked up (banked or not).",
   size: "Body size. Bigger ants cost more upkeep but hit harder.",
   "paid births": "Births paid for from the store (birth_cost each).",

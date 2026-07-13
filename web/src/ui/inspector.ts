@@ -23,11 +23,13 @@ export function renderAntDetail(
 
   if (!d) {
     body.append(muted("click an ant to inspect it"));
+    body.append(canvas);
     paint(canvas, null, null);
     return;
   }
   if (!d.alive) {
     body.append(muted(`ant #${d.id} died`));
+    body.append(canvas);
     paint(canvas, null, null);
     return;
   }
@@ -96,20 +98,10 @@ export function renderAntDetail(
   body.append(okv);
 
   body.append(evolutionExplainer());
+  // Attach before painting: `paint` sizes the canvas from `canvas.clientWidth`,
+  // which is 0 (and forces a 1x1 backing store) until the canvas is in the DOM.
+  body.append(canvas);
   paint(canvas, d, store.state.genome?.params ?? null);
-}
-
-/** Kept so any remaining caller still works; main.ts now uses the Explorer. */
-export function mountInspector(root: HTMLElement, store: Store): void {
-  const h = heading("Ant");
-  const body = document.createElement("div");
-  body.id = "inspector";
-  const canvas = document.createElement("canvas");
-  canvas.id = "nn";
-  root.append(h, body, canvas);
-  const render = () => renderAntDetail(body, canvas, store);
-  store.subscribe(render);
-  render();
 }
 
 function muted(text: string): HTMLElement {
@@ -135,8 +127,8 @@ function evolutionExplainer(): HTMLElement {
   p.textContent =
     "An ant's brain is fixed for life — it never learns. Adaptation happens " +
     "across generations, per colony. An ant's success is its fitness (food " +
-    "carried home, plus a small credit for food it's still holding). When a " +
-    "colony can afford a birth, it picks a parent in proportion to fitness, so " +
+    "carried home, plus a small credit for all food it has ever picked up). " +
+    "When a colony can afford a birth, it picks a parent in proportion to fitness, so " +
     "the best foragers have the most offspring; each child is a mutated copy of " +
     "the parent's brain. A per-colony hall of fame keeps the fittest genomes, so " +
     "a colony that nearly dies re-seeds from its best-ever ants. You can see it " +

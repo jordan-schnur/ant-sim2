@@ -255,6 +255,7 @@ describe("ant detail", () => {
     expect(f.y).toBeCloseTo(e.y, 5);
     expect(f.age).toBe(e.age);
     expect(f.lineage).toBe(e.lineage);
+    expect(f.foodHarvested).toBeCloseTo(e.foodHarvested, 5);
     expect(f.traits[0]).toBeCloseTo(e.trait0, 6);
     expect(f.traits[7]).toBeCloseTo(e.trait7, 3);
     expect(f.inputs[0]).toBeCloseTo(e.input0, 6);
