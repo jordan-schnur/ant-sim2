@@ -1,8 +1,8 @@
 /**
  * An ant's selection fitness, mirroring `Config::fitness` in the sim:
- * delivered food plus a small credit for food still being carried. This is the
- * scalar reproduction is proportional to, so it is the honest "how successful
- * is this ant" number.
+ * delivered food plus a small credit for all food ever picked up (harvested).
+ * This is the scalar reproduction is proportional to, so it is the honest
+ * "how successful is this ant" number.
  */
 
 /** Config field id for `harvest_weight` (see `apply_config_field`). */
