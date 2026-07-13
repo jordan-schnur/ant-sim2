@@ -55,8 +55,14 @@ pub const CMD_SET_PHERO_RES: u8 = 0x07;
 pub const CMD_SAVE: u8 = 0x08;
 pub const CMD_LOAD: u8 = 0x09;
 pub const CMD_RESET: u8 = 0x0A;
+pub const CMD_SET_FOOD: u8 = 0x0B;
+pub const CMD_SET_STONE: u8 = 0x0C;
+pub const CMD_SPAWN_ANT: u8 = 0x0D;
+pub const CMD_RENAME_COLONY: u8 = 0x0E;
+pub const CMD_ADD_TO_STORE: u8 = 0x0F;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+// `RenameColony` owns a `String`, so `Command` can no longer be `Copy`.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     SetPaused(bool),
     SetSpeed(u8),
@@ -68,6 +74,11 @@ pub enum Command {
     Save,
     Load,
     Reset(u64),
+    SetFood(f32, f32, f32),
+    SetStone(f32, f32, bool),
+    SpawnAnt(f32, f32, u8),
+    RenameColony(u8, String),
+    AddToStore(u8, f32),
 }
 
 /// Returns `None` for an unknown tag or a truncated payload. The caller logs
@@ -101,6 +112,46 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
         CMD_SAVE => Command::Save,
         CMD_LOAD => Command::Load,
         CMD_RESET => Command::Reset(u64::from_le_bytes(rest.get(0..8)?.try_into().ok()?)),
+        CMD_SET_FOOD => {
+            let x = f32::from_le_bytes(rest.get(0..4)?.try_into().ok()?);
+            let y = f32::from_le_bytes(rest.get(4..8)?.try_into().ok()?);
+            let a = f32::from_le_bytes(rest.get(8..12)?.try_into().ok()?);
+            if !(x.is_finite() && y.is_finite() && a.is_finite()) {
+                return None;
+            }
+            Command::SetFood(x, y, a)
+        }
+        CMD_SET_STONE => {
+            let x = f32::from_le_bytes(rest.get(0..4)?.try_into().ok()?);
+            let y = f32::from_le_bytes(rest.get(4..8)?.try_into().ok()?);
+            if !(x.is_finite() && y.is_finite()) {
+                return None;
+            }
+            Command::SetStone(x, y, *rest.get(8)? != 0)
+        }
+        CMD_SPAWN_ANT => {
+            let x = f32::from_le_bytes(rest.get(0..4)?.try_into().ok()?);
+            let y = f32::from_le_bytes(rest.get(4..8)?.try_into().ok()?);
+            if !(x.is_finite() && y.is_finite()) {
+                return None;
+            }
+            Command::SpawnAnt(x, y, *rest.get(8)?)
+        }
+        CMD_RENAME_COLONY => {
+            let colony = *rest.first()?;
+            let len = *rest.get(1)? as usize;
+            let bytes = rest.get(2..2 + len)?;
+            let name = std::str::from_utf8(bytes).ok()?.to_string();
+            Command::RenameColony(colony, name)
+        }
+        CMD_ADD_TO_STORE => {
+            let colony = *rest.first()?;
+            let a = f32::from_le_bytes(rest.get(1..5)?.try_into().ok()?);
+            if !a.is_finite() {
+                return None;
+            }
+            Command::AddToStore(colony, a)
+        }
         _ => return None,
     })
 }
@@ -934,6 +985,24 @@ mod tests {
         let mut b = vec![CMD_RESET];
         b.extend_from_slice(&99u64.to_le_bytes());
         assert_eq!(decode_command(&b), Some(Command::Reset(99)));
+    }
+
+    #[test]
+    fn decodes_the_map_edit_commands() {
+        let mut b = vec![CMD_SET_FOOD];
+        b.extend_from_slice(&1.0f32.to_le_bytes());
+        b.extend_from_slice(&2.0f32.to_le_bytes());
+        b.extend_from_slice(&50.0f32.to_le_bytes());
+        assert_eq!(decode_command(&b), Some(Command::SetFood(1.0, 2.0, 50.0)));
+
+        let mut r = vec![CMD_RENAME_COLONY, 3, 4];
+        r.extend_from_slice(b"Ants");
+        assert_eq!(
+            decode_command(&r),
+            Some(Command::RenameColony(3, "Ants".into()))
+        );
+
+        assert_eq!(decode_command(&[CMD_ADD_TO_STORE, 0]), None); // truncated
     }
 
     #[test]

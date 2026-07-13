@@ -99,6 +99,90 @@ impl World {
         }
     }
 
+    /// Cell index for a world position, or `None` if non-finite or off-map.
+    /// Shared by the operator map-edit mutators below.
+    fn cell_index(&self, x: f32, y: f32) -> Option<usize> {
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        if !self.grid.in_bounds(x as i32, y as i32) {
+            return None;
+        }
+        Some(self.grid.idx(x as u16, y as u16))
+    }
+
+    /// Operator edit: set the standing food at a cell. Applied between ticks by
+    /// the sim thread, so it mutates deterministically without racing the tick.
+    pub fn set_food(&mut self, x: f32, y: f32, amount: f32) {
+        if let Some(i) = self.cell_index(x, y) {
+            self.grid.food[i] = amount.max(0.0);
+        }
+    }
+
+    /// Operator edit: place or clear stone. A nest tile is never buried.
+    pub fn set_stone(&mut self, x: f32, y: f32, solid: bool) {
+        if let Some(i) = self.cell_index(x, y) {
+            if self.grid.nest[i] == crate::grid::NO_NEST {
+                self.grid.stone[i] = solid;
+                if solid {
+                    self.grid.food[i] = 0.0;
+                }
+            }
+        }
+    }
+
+    /// Operator edit: add (or, with a negative amount, remove) food from a
+    /// colony's store, floored at zero.
+    pub fn add_to_store(&mut self, colony: u8, amount: f32) {
+        if !amount.is_finite() {
+            return;
+        }
+        if let Some(c) = self.colonies.get_mut(colony as usize) {
+            c.store = (c.store + amount).max(0.0);
+        }
+    }
+
+    /// Operator edit: rename a colony.
+    pub fn rename_colony(&mut self, colony: u8, name: String) {
+        if let Some(c) = self.colonies.get_mut(colony as usize) {
+            c.name = name;
+        }
+    }
+
+    /// Operator edit: spawn one ant of a colony at a position, bred from the
+    /// colony's archive (or a random genome if the archive is empty). Uses the
+    /// world id counter so `Ants::push`'s strictly-increasing-id invariant holds,
+    /// and rebuilds the spatial index the edit invalidated.
+    pub fn spawn_ant_at(&mut self, x: f32, y: f32, colony: u8) {
+        if self.cell_index(x, y).is_none() {
+            return;
+        }
+        if colony as usize >= self.colonies.len() {
+            return;
+        }
+        let genome = match self.colonies[colony as usize].archive_parent(&mut self.rng) {
+            Some((g, _)) => g.clone(),
+            None => Genome::random(&mut self.rng),
+        };
+        let id = self.next_id;
+        self.next_id += 1;
+        let energy = crate::reproduce::NEWBORN_ENERGY_FRAC
+            * genome.max_energy(&self.cfg, crate::reproduce::NEWBORN_SIZE);
+        self.ants.push(Spawn {
+            id,
+            colony,
+            x,
+            y,
+            heading: 0.0,
+            energy,
+            size: crate::reproduce::NEWBORN_SIZE,
+            lineage: 0,
+            genome,
+            birth_tick: self.tick_count,
+        });
+        self.rebuild_index();
+    }
+
     /// Index of a living ant by id. `Ants::id` is sorted, so this binary-searches.
     pub fn index_of(&self, id: u64) -> Option<usize> {
         self.ants.id.binary_search(&id).ok()
@@ -429,6 +513,35 @@ mod tests {
             food_patch_count: 6,
             ..Config::default()
         }
+    }
+
+    #[test]
+    fn set_food_writes_the_cell_and_clamps_out_of_bounds() {
+        let mut w = World::new(&Config { width: 32, height: 32, ..Config::default() }, 1);
+        w.set_food(5.0, 5.0, 123.0);
+        let i = w.grid.idx(5, 5);
+        assert_eq!(w.grid.food[i], 123.0);
+        w.set_food(-9.0, -9.0, 1.0); // must not panic
+    }
+
+    #[test]
+    fn add_to_store_credits_the_named_colony() {
+        let mut w = World::new(&Config { num_colonies: 2, ..Config::default() }, 1);
+        let before = w.colonies[1].store;
+        w.add_to_store(1, 50.0);
+        assert_eq!(w.colonies[1].store, before + 50.0);
+    }
+
+    #[test]
+    fn spawn_ant_at_adds_one_living_ant_of_that_colony() {
+        let mut w = World::new(
+            &Config { width: 32, height: 32, num_colonies: 2, ..Config::default() },
+            1,
+        );
+        let before = w.ants.population(0);
+        w.spawn_ant_at(4.0, 4.0, 0);
+        assert_eq!(w.ants.population(0), before + 1);
+        assert!(w.ants.id.windows(2).all(|s| s[0] < s[1]), "ids stay sorted");
     }
 
     #[test]

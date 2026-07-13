@@ -322,6 +322,17 @@ fn apply_command(st: &mut State, cmd: Command, pubs: &Publishers, buf: &mut Vec<
             publish_config(pubs, st, buf);
             publish_colony_meta(pubs, st, buf);
         }
+        // Operator map edits: applied between ticks, so they mutate the world
+        // without racing the tick. A rename republishes colony meta so the UI
+        // reflects the new name immediately.
+        Command::SetFood(x, y, a) => st.world.set_food(x, y, a),
+        Command::SetStone(x, y, solid) => st.world.set_stone(x, y, solid),
+        Command::SpawnAnt(x, y, colony) => st.world.spawn_ant_at(x, y, colony),
+        Command::AddToStore(colony, a) => st.world.add_to_store(colony, a),
+        Command::RenameColony(colony, name) => {
+            st.world.rename_colony(colony, name);
+            publish_colony_meta(pubs, st, buf);
+        }
     }
 }
 
@@ -549,6 +560,28 @@ mod tests {
         assert_eq!(buf[0], protocol::TAG_ANT_DETAIL);
         assert_eq!(buf[10], 0, "alive byte must be false");
         assert_eq!(buf.len(), protocol::ANT_DETAIL_LEN + 1, "fixed body plus an empty-name byte");
+    }
+
+    #[test]
+    fn a_set_food_command_reaches_the_world() {
+        let mut st = state();
+        let mut buf = Vec::new();
+        apply_command(&mut st, Command::SetFood(4.0, 4.0, 77.0), &pubs(), &mut buf);
+        let i = st.world.grid.idx(4, 4);
+        assert_eq!(st.world.grid.food[i], 77.0);
+    }
+
+    #[test]
+    fn a_rename_reaches_the_colony_and_republishes_meta() {
+        let mut st = state();
+        let mut buf = Vec::new();
+        apply_command(
+            &mut st,
+            Command::RenameColony(0, "Test Host".into()),
+            &pubs(),
+            &mut buf,
+        );
+        assert_eq!(st.world.colonies[0].name, "Test Host");
     }
 
     #[test]
