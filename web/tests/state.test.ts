@@ -174,6 +174,7 @@ describe("selection", () => {
       h1: new Float32Array(16),
       h2: new Float32Array(16),
       outputs: new Float32Array(8),
+      name: "",
     });
     expect(s.state.genome?.id).toBe(7);
   });

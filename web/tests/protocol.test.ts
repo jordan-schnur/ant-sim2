@@ -235,8 +235,9 @@ describe("stats", () => {
 });
 
 describe("ant detail", () => {
-  it("is exactly the documented length", () => {
-    expect(load("detail.bin").byteLength).toBe(ANT_DETAIL_LEN);
+  it("is at least the documented fixed-body length plus a name tail", () => {
+    // ANT_DETAIL_LEN is now the minimum: a length-prefixed name follows.
+    expect(load("detail.bin").byteLength).toBeGreaterThan(ANT_DETAIL_LEN);
   });
 
   it("agrees on scalars, traits, and activations", () => {
@@ -256,6 +257,8 @@ describe("ant detail", () => {
     expect(f.traits[7]).toBeCloseTo(e.trait7, 3);
     expect(f.inputs[0]).toBeCloseTo(e.input0, 6);
     expect(f.outputs[0]).toBeCloseTo(e.output0, 6);
+    // The trailing length-prefixed name decodes to a non-empty string.
+    expect(f.name.length).toBeGreaterThan(0);
   });
 
   it("pins the head and tail of every activation layer", () => {
@@ -325,6 +328,32 @@ describe("config", () => {
     for (const id of f.values.keys()) {
       expect(CONFIG_FIELDS[id], `no name for field id ${id}`).toBeDefined();
     }
+  });
+});
+
+describe("colonyMeta", () => {
+  it("agrees with the Rust encoder on count and names", () => {
+    const f = decode(load("colony_meta.bin"));
+    expect(f?.kind).toBe("colonyMeta");
+    if (f?.kind !== "colonyMeta") return;
+    expect(f.colonies.length).toBe(expected.colonyMeta.count);
+    expect(f.colonies[0].id).toBe(0);
+    expect(f.colonies[0].name).toBe(expected.colonyMeta.name0);
+  });
+});
+
+describe("chronicle", () => {
+  it("agrees with the Rust encoder on the event fields", () => {
+    const f = decode(load("chronicle.bin"));
+    expect(f?.kind).toBe("chronicle");
+    if (f?.kind !== "chronicle") return;
+    expect(f.events.length).toBe(expected.chronicle.count);
+    const e = f.events[0];
+    expect(e.tick).toBe(expected.chronicle.tick0);
+    expect(e.colony).toBe(expected.chronicle.colony0);
+    expect(e.eventKind).toBe(expected.chronicle.kind0);
+    expect(e.text).toBe(expected.chronicle.text0);
+    expect(e.antName?.length).toBeGreaterThan(0);
   });
 });
 
