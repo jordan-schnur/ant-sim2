@@ -64,6 +64,8 @@ pub struct Handles {
     pub detail: watch::Receiver<Frame>,
     pub genome: watch::Receiver<Frame>,
     pub config: watch::Receiver<Frame>,
+    pub colony_meta: watch::Receiver<Frame>,
+    pub chronicle: watch::Receiver<Frame>,
 }
 
 struct Publishers {
@@ -75,6 +77,8 @@ struct Publishers {
     detail: watch::Sender<Frame>,
     genome: watch::Sender<Frame>,
     config: watch::Sender<Frame>,
+    colony_meta: watch::Sender<Frame>,
+    chronicle: watch::Sender<Frame>,
 }
 
 fn empty() -> Frame {
@@ -112,6 +116,10 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
     }));
     let (detail_tx, detail) = watch::channel(empty());
     let (genome_tx, genome) = watch::channel(empty());
+    let (colony_meta_tx, colony_meta) =
+        watch::channel(frame(|b| protocol::encode_colony_meta(b, &world)));
+    let (chronicle_tx, chronicle) =
+        watch::channel(frame(|b| protocol::encode_chronicle(b, &world)));
 
     let pubs = Publishers {
         hello: hello_tx,
@@ -122,6 +130,8 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
         detail: detail_tx,
         genome: genome_tx,
         config: config_tx,
+        colony_meta: colony_meta_tx,
+        chronicle: chronicle_tx,
     };
 
     let st = State {
@@ -148,6 +158,8 @@ pub fn spawn(cfg: Config, seed: u64, save_path: PathBuf) -> Handles {
         detail,
         genome,
         config,
+        colony_meta,
+        chronicle,
     }
 }
 
@@ -230,6 +242,8 @@ fn run(mut st: State, mut rx: UnboundedReceiver<Command>, pubs: Publishers) {
             let stats = st.world.stats();
             protocol::encode_stats(&mut buf, st.world.tick_count, &stats);
             let _ = pubs.stats.send(Arc::new(buf.clone()));
+            protocol::encode_chronicle(&mut buf, &st.world);
+            let _ = pubs.chronicle.send(Arc::new(buf.clone()));
             publish_detail(&pubs, &st, &mut buf);
             // Refreshed rather than sent once at startup: a client that
             // connects to an already-running sim would otherwise be told the
@@ -291,6 +305,7 @@ fn apply_command(st: &mut State, cmd: Command, pubs: &Publishers, buf: &mut Vec<
                 st.selected = None;
                 publish_hello(pubs, st, buf);
                 publish_config(pubs, st, buf);
+                publish_colony_meta(pubs, st, buf);
                 tracing::info!(path = ?st.save_path, "loaded");
             }
             Ok(Err(e)) => tracing::error!(%e, "decode failed"),
@@ -305,6 +320,7 @@ fn apply_command(st: &mut State, cmd: Command, pubs: &Publishers, buf: &mut Vec<
             st.selected = None;
             publish_hello(pubs, st, buf);
             publish_config(pubs, st, buf);
+            publish_colony_meta(pubs, st, buf);
         }
     }
 }
@@ -318,6 +334,11 @@ fn publish_hello(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
 fn publish_config(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
     protocol::encode_config(buf, &st.world.cfg);
     let _ = pubs.config.send(Arc::new(buf.clone()));
+}
+
+fn publish_colony_meta(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
+    protocol::encode_colony_meta(buf, &st.world);
+    let _ = pubs.colony_meta.send(Arc::new(buf.clone()));
 }
 
 fn publish_genome(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
@@ -426,6 +447,8 @@ mod tests {
             detail: watch::channel(empty()).0,
             genome: watch::channel(empty()).0,
             config: watch::channel(empty()).0,
+            colony_meta: watch::channel(empty()).0,
+            chronicle: watch::channel(empty()).0,
         }
     }
 
@@ -647,6 +670,11 @@ mod tests {
 
         let st = h.stats.borrow().clone();
         assert_eq!(st[0], protocol::TAG_STATS);
+
+        let cm = h.colony_meta.borrow().clone();
+        assert_eq!(cm[0], protocol::TAG_COLONY_META);
+        let ch = h.chronicle.borrow().clone();
+        assert_eq!(ch[0], protocol::TAG_CHRONICLE);
 
         // Nothing is selected yet, so these two are legitimately empty.
         assert!(h.detail.borrow().is_empty());
