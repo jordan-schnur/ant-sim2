@@ -127,6 +127,18 @@
       .status.bad { color: #ff7a6b; }
       .bar { height: 5px; background: #000; border-radius: 3px; overflow: hidden; margin: 3px 0 6px; }
       .bar > div { height: 100%; background: var(--accent); }
+
+      .tip { position: relative; cursor: help; border-bottom: 1px dotted var(--dim); }
+      .tip:hover::after {
+        content: attr(data-tip);
+        position: absolute; left: 0; top: 140%; z-index: 20;
+        width: max-content; max-width: 220px;
+        background: #06070a; color: var(--text);
+        border: 1px solid var(--line); border-radius: 5px;
+        padding: 5px 7px; font-size: 11px; line-height: 1.35;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.6); white-space: normal;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
