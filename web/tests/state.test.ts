@@ -241,7 +241,7 @@ describe("colony selection", () => {
     expect(s.selectedColony()).toBe(null);
     s.selectColony(3);
     expect(s.selectedColony()).toBe(3);
-    s.clearColony();
+    s.clearSelection();
     expect(s.selectedColony()).toBe(null);
   });
 

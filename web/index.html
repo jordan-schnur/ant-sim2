@@ -48,6 +48,12 @@
         color: var(--dim); pointer-events: none;
         font-size: 12px;
       }
+      .hotkeys {
+        position: absolute; left: 8px; bottom: 8px;
+        background: rgba(0,0,0,0.55); color: var(--dim);
+        padding: 3px 8px; border-radius: 4px; font-size: 11px;
+        pointer-events: none;
+      }
       .collapse {
         position: absolute; top: 8px; background: rgba(0,0,0,0.55);
         border: 1px solid var(--line); color: var(--dim);
@@ -159,6 +165,7 @@
       <div id="world-wrap">
         <canvas id="world"></canvas>
         <div class="overlay" id="overlay">connecting…</div>
+        <div class="hotkeys" id="hotkeys">Alt-click: tile · F: fit · Space: pause · Esc: deselect</div>
         <button class="collapse" id="collapse-left" title="Toggle left rail">&#9668;</button>
         <button class="collapse" id="collapse-right" title="Toggle right rail">&#9658;</button>
       </div>

@@ -230,12 +230,6 @@ export class Store {
     this.notify();
   }
 
-  // TODO(task 9): main.ts still calls clearColony() directly; once it is
-  // updated to call clearSelection() this alias can go away.
-  clearColony(): void {
-    this.clearSelection();
-  }
-
   setPaused(p: boolean): void {
     this.state.paused = p;
     this.notify();

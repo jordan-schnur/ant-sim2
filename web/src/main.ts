@@ -19,7 +19,9 @@ import { mountChronicle } from "./ui/chronicle.js";
 import { mountColonies } from "./ui/colony.js";
 import { mountControls } from "./ui/controls.js";
 import { openContextMenu, type MenuItem } from "./ui/contextmenu.js";
-import { mountInspector } from "./ui/inspector.js";
+import { mountRail } from "./ui/rail.js";
+import { mountExplorer } from "./ui/explorer.js";
+import { AntPopover } from "./ui/antpopover.js";
 import { LabelOverlay } from "./ui/labels.js";
 import { ColonyPanel } from "./ui/colonypanel.js";
 
@@ -37,21 +39,18 @@ const overlay = document.getElementById("overlay") as HTMLDivElement;
 const worldWrap = document.getElementById("world-wrap") as HTMLElement;
 const labels = new LabelOverlay(worldWrap);
 const colonyPanel = new ColonyPanel(worldWrap);
+const antPopover = new AntPopover(worldWrap);
 const leftRail = document.getElementById("left-rail") as HTMLElement;
 const rightRail = document.getElementById("right-rail") as HTMLElement;
 
 mountControls(leftRail, store, net);
 
-// Explicit containers, in order. `mountColonies` creates its cards lazily when
-// the first stats frame lands, so appending both panels straight onto the rail
-// would leave the colonies underneath the inspector.
-const coloniesEl = document.createElement("div");
-const chronicleEl = document.createElement("div");
-const inspectorEl = document.createElement("div");
-rightRail.append(coloniesEl, chronicleEl, inspectorEl);
-mountColonies(coloniesEl, store, focusColony);
-mountChronicle(chronicleEl, store);
-mountInspector(inspectorEl, store);
+const { coloniesPane, explorerPane } = mountRail(rightRail, store);
+// Colonies tab: the cards (with camera-focus on click) then the chronicle.
+mountColonies(coloniesPane, store, focusColony);
+mountChronicle(coloniesPane, store);
+// Explorer tab: the context-sensitive inspector.
+mountExplorer(explorerPane, store);
 
 document.getElementById("collapse-left")!.addEventListener("click", () => {
   leftRail.classList.toggle("collapsed");
@@ -134,14 +133,20 @@ function attachPointer(r: WorldRenderer): void {
       return;
     }
 
-    // A click on a nest tile opens that colony's in-world stats popover instead
-    // of selecting the nearest ant — on a nest, colony info is what you want.
+    // Alt/Option-click inspects the bare tile under the cursor.
+    if (e.altKey) {
+      store.selectTile(Math.floor(w.x), Math.floor(w.y));
+      return;
+    }
+    // A nest tile opens that colony (popover + Explorer).
     const colony = nestColonyAt(w.x, w.y);
     if (colony !== null) {
       store.selectColony(colony);
       return;
     }
-    store.clearColony(); // clicking elsewhere dismisses the popover
+    // Otherwise select the nearest ant: mark the selection optimistically and
+    // ask the server for the ant payload.
+    store.selectAnt();
     net.send(cmdSelectAt(w.x, w.y));
   });
 
@@ -216,6 +221,7 @@ function focusColony(colonyId: number): void {
 function menuItemsFor(x: number, y: number): MenuItem[] {
   const colony = nestColonyAt(x, y);
   const items: MenuItem[] = [
+    { label: "Inspect tile here", onClick: () => store.selectTile(Math.floor(x), Math.floor(y)) },
     {
       label: "Set food here…",
       editor: {
@@ -280,6 +286,7 @@ function frame(): void {
     if (st.labels) labels.update(r.camera, r.viewW, r.viewH, r.dpr, store);
     else labels.setVisible(false);
     colonyPanel.update(r.camera, r.viewW, r.viewH, r.dpr, store);
+    antPopover.update(r.camera, r.viewW, r.viewH, r.dpr, store);
     const ants = st.ants?.count ?? 0;
     overlay.textContent = st.connected
       ? `tick ${st.tick.toLocaleString()}  ·  ${ants.toLocaleString()} ants  ·  ${r.camera.zoom.toFixed(1)}x`
