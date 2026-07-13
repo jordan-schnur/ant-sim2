@@ -113,7 +113,7 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
 /// first 500k-tick run showed 97.7% of ants are born free from the extinction
 /// floor rather than paid for out of a colony's store, and fingered exactly
 /// these four as the reason. See `docs/superpowers/notes/`.
-pub const CONFIG_FIELDS: [&str; 16] = [
+pub const CONFIG_FIELDS: [&str; 17] = [
     "food_evaporation",
     "alarm_evaporation",
     "scent_evaporation",
@@ -130,6 +130,7 @@ pub const CONFIG_FIELDS: [&str; 16] = [
     "growth_threshold",
     "food_regrow",
     "attack_damage",
+    "harvest_weight",
 ];
 
 fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
@@ -150,6 +151,7 @@ fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
         13 => &mut cfg.growth_threshold,
         14 => &mut cfg.food_regrow,
         15 => &mut cfg.attack_damage,
+        16 => &mut cfg.harvest_weight,
         _ => return None,
     })
 }
@@ -756,6 +758,16 @@ mod tests {
         assert_eq!(b.len(), 2 + CONFIG_FIELDS.len() * 5);
         let v = f32::from_le_bytes(b[3..7].try_into().unwrap());
         assert_eq!(v, cfg.food_evaporation);
+    }
+
+    #[test]
+    fn field_id_16_sets_harvest_weight() {
+        let mut cfg = Config::default();
+        assert!(apply_config_field(&mut cfg, 16, 0.1));
+        assert_eq!(cfg.harvest_weight, 0.1);
+        // Clamped to >= 0 like the other non-evaporation fields.
+        apply_config_field(&mut cfg, 16, -1.0);
+        assert_eq!(cfg.harvest_weight, 0.0);
     }
 
     #[test]

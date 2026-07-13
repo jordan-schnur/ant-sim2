@@ -41,6 +41,7 @@ export const TUNABLES: Tunable[] = [
   { id: 13, label: "growth threshold", min: 0.01, max: 1, scale: "linear", hint: "growing costs a forager" },
   { id: 14, label: "food regrow", min: 0, max: 0.02, scale: "linear" },
   { id: 15, label: "attack damage", min: 0, max: 20, scale: "linear" },
+  { id: 16, label: "harvest weight", min: 0, max: 0.2, scale: "linear", hint: "0 = deliver-only; nudge toward foraging" },
 ];
 
 /** Slider position [0,1] -> config value. */

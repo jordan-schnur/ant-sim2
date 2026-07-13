@@ -72,6 +72,7 @@ export const CONFIG_FIELDS = [
   "growth_threshold",
   "food_regrow",
   "attack_damage",
+  "harvest_weight",
 ] as const;
 
 export const TRAIT_NAMES = [
