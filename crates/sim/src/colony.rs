@@ -43,6 +43,9 @@ pub struct ColonyState {
     /// number forever.
     pub hall_of_fame: Vec<(f32, u32, Genome)>,
     pub next_lineage_hint: u32,
+    /// One-shot chronicle flags: latched the first time the milestone happens.
+    pub first_delivery_done: bool,
+    pub first_kill_done: bool,
 }
 
 impl ColonyState {
@@ -60,6 +63,8 @@ impl ColonyState {
             last_floor_spawn: 0,
             hall_of_fame: Vec::new(),
             next_lineage_hint: 0,
+            first_delivery_done: false,
+            first_kill_done: false,
         }
     }
 

@@ -4,6 +4,7 @@ use crate::apply::{
     sweep_deaths, ApplyCtx,
 };
 use crate::brain::{Activations, Brain};
+use crate::chronicle::Chronicle;
 use crate::colony::ColonyState;
 use crate::config::Config;
 use crate::genome::Genome;
@@ -30,6 +31,8 @@ pub struct World {
     /// Drives births and worldgen only. Ants draw from their own streams.
     pub rng: Pcg32,
     pub next_id: u64,
+    /// The story log: permanent "firsts" and rolling titles, streamed to the UI.
+    pub chronicle: Chronicle,
 
     /// Derived each tick; never serialised.
     #[serde(skip)]
@@ -78,6 +81,7 @@ impl World {
             colonies,
             rng,
             next_id,
+            chronicle: Chronicle::new(),
             spatial: Spatial::new(cfg),
         };
         w.rebuild_index();
@@ -210,11 +214,53 @@ impl World {
             &mut self.rng,
         );
 
+        self.run_chronicle_detectors();
+
         // --- Phase 3: fields. ---
         self.phero.step(&self.cfg);
         self.grid.regrow(self.cfg.food_regrow);
 
         self.tick_count += 1;
+    }
+
+    /// The event registry. Each block is one detector; add a milestone by adding
+    /// a block. Runs in the serial phase, so it cannot perturb determinism.
+    fn run_chronicle_detectors(&mut self) {
+        let tick = self.tick_count;
+        for ci in 0..self.colonies.len() {
+            // FirstDelivery: the colony's store has been fed for the first time.
+            if !self.colonies[ci].first_delivery_done
+                && self.colonies[ci].delivered_total > 0.0
+            {
+                let cid = self.colonies[ci].id;
+                // Attribute to the living ant of this colony with the most
+                // delivered — the likely deliverer this tick.
+                let who = (0..self.ants.len())
+                    .filter(|&i| self.ants.alive[i] && self.ants.colony[i] == cid)
+                    .max_by(|&a, &b| {
+                        self.ants.food_delivered[a]
+                            .total_cmp(&self.ants.food_delivered[b])
+                    });
+                let (ant_id, ant_name) = match who {
+                    Some(i) => (
+                        Some(self.ants.id[i]),
+                        Some(crate::names::ant_name(self.ants.id[i])),
+                    ),
+                    None => (None, None),
+                };
+                let cname = self.colonies[ci].name.clone();
+                let mut done = self.colonies[ci].first_delivery_done;
+                self.chronicle.record(&mut done, crate::chronicle::ChronicleEvent {
+                    tick,
+                    colony: cid,
+                    kind: crate::chronicle::EventKind::FirstDelivery,
+                    ant_id,
+                    ant_name,
+                    text: format!("{cname}: first food carried home"),
+                });
+                self.colonies[ci].first_delivery_done = done;
+            }
+        }
     }
 
     pub fn stats(&self) -> Vec<ColonyStats> {
