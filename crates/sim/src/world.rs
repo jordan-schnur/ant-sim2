@@ -749,6 +749,11 @@ mod tests {
             height: 32,
             num_colonies: 2,
             initial_ants_per_colony: 30,
+            // A deep store so the packed founders stay fed long enough to fight:
+            // the tuned lean economy (small store, slow refuel) otherwise starves
+            // this crowd before any blow lands, and this test is about the
+            // attack flag, not the economy.
+            initial_food_store: 5000.0,
             ..Config::default()
         };
         let mut w = World::new(&cfg, 11);

@@ -567,12 +567,14 @@ mod tests {
         f.grid.nest[n] = 1;
         f.colonies[1].store = 1000.0;
         let max_e = f.ants.genome[0].max_energy(&f.cfg, f.ants.size[0]);
-        f.ants.energy[0] = max_e - 1.0;
+        // Deficit below refuel_rate, so the cap under test is max_energy (the
+        // ant's need), not the per-tick refuel rate.
+        f.ants.energy[0] = max_e - 0.5;
         let (ants, mut ctx) = f.split();
         apply_nest(0, ants, &mut ctx);
         assert!((f.ants.energy[0] - max_e).abs() < 1e-4);
         assert!(
-            (f.colonies[1].store - 999.0).abs() < 1e-3,
+            (f.colonies[1].store - 999.5).abs() < 1e-3,
             "took only what it needed"
         );
     }

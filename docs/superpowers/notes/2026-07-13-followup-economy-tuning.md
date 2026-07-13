@@ -1,6 +1,9 @@
 # Follow-up: tune the colony economy so populations grow
 
-**Status:** deferred backlog item, opened 2026-07-13. Not yet specced.
+**Status:** DONE, 2026-07-13. Resolved by tuning `birth_cost` 40→12,
+`refuel_rate` 2.0→0.75, `initial_food_store` 600→150. See the result note
+[`2026-07-13-economy-tuning-result.md`](2026-07-13-economy-tuning-result.md).
+The rest of this file is the original brief, kept for context.
 
 ## Why this exists
 

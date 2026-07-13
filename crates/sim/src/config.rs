@@ -158,15 +158,23 @@ impl Default for Config {
             stone_blob_radius: 7.0,
 
             // Enough to refuel through a bad stretch, but NOT a birth windfall:
-            // at birth_cost 40 this buys ~15 births, not 100. A huge initial
+            // at birth_cost 12 this buys ~12 births, not 100. A huge initial
             // store just converts to a population spike that then starves.
-            initial_food_store: 600.0,
-            birth_cost: 40.0,
+            initial_food_store: 150.0,
+            // birth_cost and refuel_rate were tuned by seed-averaged headless
+            // sweeps to make colonies actually grow past the extinction floor.
+            // The old defaults (40 / 2.0) pinned every colony at 5 ants: no
+            // realistic delivery rate could bank a 40-food birth, and refuel at
+            // 2.0/tick let loitering ants drain the store as fast as it filled.
+            // At 12 / 0.75 a modest surplus buys a birth and delivered food
+            // accumulates, so a couple of colonies per run climb to ~40 ants
+            // with sustained paid births. See the 2026-07-13 economy-tuning note.
+            birth_cost: 12.0,
             max_births_per_tick: 2,
             extinction_floor: 5,
             floor_respawn_interval: 200,
             hall_of_fame_size: 10,
-            refuel_rate: 2.0,
+            refuel_rate: 0.75,
 
             food_evaporation: 0.995,
             alarm_evaporation: 0.97,

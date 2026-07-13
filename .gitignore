@@ -1,3 +1,7 @@
 /target
 snapshot.bin
 *.bin.tmp
+
+# Tooling artifacts
+.codegraph/
+.playwright-mcp/
