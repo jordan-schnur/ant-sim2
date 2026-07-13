@@ -44,8 +44,12 @@ export function renderAntDetail(
   head.append(fl, fv);
   const brk = document.createElement("div");
   brk.className = "muted fitness-brk";
+  // `weight` arrives as an f32 widened to f64, so a bare `${weight}` prints
+  // 0.019999999552965164. Trim the float noise without hard-coding 2 decimals,
+  // since harvest_weight is tunable to other small values.
+  const weightText = String(Number(weight.toFixed(4)));
   brk.textContent =
-    `= delivered ${d.foodDelivered.toFixed(0)} + ${weight} × harvested ${d.foodHarvested.toFixed(0)}`;
+    `= delivered ${d.foodDelivered.toFixed(0)} + ${weightText} × harvested ${d.foodHarvested.toFixed(0)}`;
   body.append(head, brk);
 
   const kv = document.createElement("div");
