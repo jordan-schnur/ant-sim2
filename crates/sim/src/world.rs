@@ -298,6 +298,15 @@ impl World {
             &mut self.rng,
         );
 
+        // `retain_alive` compacted the arrays and `reproduce` appended newborns,
+        // so the index built at the top of this tick now points past the live
+        // ants. Rebuild it against the final array to leave the world queryable
+        // between ticks — the server reads `activations` for the selected ant on
+        // every frame, and a stale index there is an out-of-bounds panic. The
+        // top-of-tick rebuild still governs the think phase, so this does not
+        // touch determinism.
+        self.spatial.rebuild(&self.ants);
+
         self.run_chronicle_detectors();
 
         // --- Phase 3: fields. ---
@@ -740,6 +749,39 @@ mod tests {
 
         w.ants.alive[7] = false;
         assert_ne!(w.nearest_ant(30.1, 30.1), Some(w.ants.id[7]));
+    }
+
+    #[test]
+    fn activations_are_queryable_after_a_tick_that_killed_ants() {
+        // Regression: the spatial index is rebuilt at the top of `tick`, but
+        // `retain_alive` compacts the ant arrays at the bottom. Between ticks the
+        // grid holds indices past the shrunken array. The server reads exactly
+        // this window every frame — `activations` for the selected ant — so a
+        // tick with any death used to panic with an out-of-bounds grid index.
+        let mut w = World::new(&small(), 7);
+        w.tick(); // size the arrays and place the founders
+
+        let n = w.ants.len();
+        let victim = n - 1; // highest index; retain leaves it dangling in the grid
+        // Co-locate a survivor with the victim so the survivor's neighbourhood
+        // sensor reads the very cell that still holds the stale index.
+        w.ants.x[0] = w.ants.x[victim];
+        w.ants.y[0] = w.ants.y[victim];
+        w.ants.energy[0] = 1e6; // ant 0 survives the tick
+        w.ants.energy[victim] = -1e6; // and dies this tick, beyond any harvest
+        for c in &mut w.colonies {
+            c.store = 0.0; // no refuel (would save the victim) and no births
+        }
+
+        w.tick(); // victim dies, arrays shrink, grid left stale
+        assert!(w.ants.len() < n, "the victim should have died");
+
+        // Must not panic, and must read against the live arrays.
+        for i in 0..w.ants.len() {
+            if w.ants.alive[i] {
+                let _ = w.activations(i);
+            }
+        }
     }
 
     #[test]
