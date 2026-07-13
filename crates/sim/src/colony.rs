@@ -100,13 +100,14 @@ impl ColonyState {
     }
 
     /// Roulette-wheel over living ants **of this colony only**, weighted by
-    /// lifetime food delivered. Accumulates in ant-index order, so the draw is
-    /// reproducible for a given rng state.
-    pub fn select_parent(&self, ants: &Ants, rng: &mut Pcg32) -> Option<usize> {
+    /// shaped fitness (`food_delivered + harvest_weight · food_harvested`).
+    /// Accumulates in ant-index order, so the draw is reproducible for a given
+    /// rng state. `harvest_weight = 0` recovers pure delivery weighting.
+    pub fn select_parent(&self, ants: &Ants, harvest_weight: f32, rng: &mut Pcg32) -> Option<usize> {
         let mut total = 0.0f32;
         for i in 0..ants.len() {
             if ants.alive[i] && ants.colony[i] == self.id {
-                total += ants.food_delivered[i] + PARENT_EPS;
+                total += ants.food_delivered[i] + harvest_weight * ants.food_harvested[i] + PARENT_EPS;
             }
         }
         if total <= 0.0 {
@@ -117,7 +118,7 @@ impl ColonyState {
         for i in 0..ants.len() {
             if ants.alive[i] && ants.colony[i] == self.id {
                 last = Some(i);
-                target -= ants.food_delivered[i] + PARENT_EPS;
+                target -= ants.food_delivered[i] + harvest_weight * ants.food_harvested[i] + PARENT_EPS;
                 if target <= 0.0 {
                     return Some(i);
                 }
@@ -259,12 +260,41 @@ mod tests {
     }
 
     #[test]
+    fn select_parent_rewards_harvest_when_weight_is_positive() {
+        // Two ants, neither has delivered. One harvested a lot. With a positive
+        // weight the harvester should win the roulette almost always.
+        let c = ColonyState::new(1);
+        let mut ants = ants_with(&[(1, 0.0), (1, 0.0)]);
+        ants.food_harvested[1] = 500.0;
+        let mut r = Pcg32::new(21, 21);
+        let wins = (0..1000)
+            .filter(|_| c.select_parent(&ants, 0.02, &mut r) == Some(1))
+            .count();
+        assert!(wins > 850, "harvester won only {wins}/1000");
+    }
+
+    #[test]
+    fn select_parent_with_zero_weight_ignores_harvest() {
+        // The purity toggle at the selection layer: weight 0 => harvest is
+        // invisible, so two zero-delivery ants are ~evenly chosen regardless of
+        // how much one harvested.
+        let c = ColonyState::new(1);
+        let mut ants = ants_with(&[(1, 0.0), (1, 0.0)]);
+        ants.food_harvested[1] = 500.0;
+        let mut r = Pcg32::new(22, 22);
+        let one = (0..1000)
+            .filter(|_| c.select_parent(&ants, 0.0, &mut r) == Some(1))
+            .count();
+        assert!(one > 350 && one < 650, "weight 0 should stay fair, got {one}/1000");
+    }
+
+    #[test]
     fn select_parent_only_ever_returns_own_colony() {
         let c = ColonyState::new(1);
         let ants = ants_with(&[(1, 5.0), (2, 500.0), (1, 5.0)]);
         let mut r = Pcg32::new(1, 1);
         for _ in 0..200 {
-            let p = c.select_parent(&ants, &mut r).unwrap();
+            let p = c.select_parent(&ants, 0.0, &mut r).unwrap();
             assert_eq!(ants.colony[p], 1, "gene pools must never mix");
         }
     }
@@ -275,7 +305,7 @@ mod tests {
         let ants = ants_with(&[(1, 0.0), (1, 1000.0)]);
         let mut r = Pcg32::new(2, 2);
         let wins = (0..1000)
-            .filter(|_| c.select_parent(&ants, &mut r) == Some(1))
+            .filter(|_| c.select_parent(&ants, 0.0, &mut r) == Some(1))
             .count();
         assert!(wins > 900, "productive ant won only {wins}/1000");
     }
@@ -286,7 +316,7 @@ mod tests {
         let ants = ants_with(&[(1, 0.0), (1, 0.0)]);
         let mut r = Pcg32::new(3, 3);
         let a = (0..500)
-            .filter(|_| c.select_parent(&ants, &mut r) == Some(0))
+            .filter(|_| c.select_parent(&ants, 0.0, &mut r) == Some(0))
             .count();
         assert!(
             a > 100 && a < 400,
@@ -300,14 +330,14 @@ mod tests {
         let mut ants = ants_with(&[(1, 100.0), (1, 1.0)]);
         ants.alive[0] = false;
         let mut r = Pcg32::new(4, 4);
-        assert_eq!(c.select_parent(&ants, &mut r), Some(1));
+        assert_eq!(c.select_parent(&ants, 0.0, &mut r), Some(1));
     }
 
     #[test]
     fn select_parent_returns_none_for_an_empty_colony() {
         let c = ColonyState::new(9);
         let ants = ants_with(&[(1, 1.0)]);
-        assert_eq!(c.select_parent(&ants, &mut Pcg32::new(5, 5)), None);
+        assert_eq!(c.select_parent(&ants, 0.0, &mut Pcg32::new(5, 5)), None);
     }
 
     #[test]
@@ -315,10 +345,10 @@ mod tests {
         let c = ColonyState::new(1);
         let ants = ants_with(&[(1, 3.0), (1, 4.0), (1, 5.0)]);
         let a: Vec<_> = (0..20)
-            .scan(Pcg32::new(6, 6), |r, _| Some(c.select_parent(&ants, r)))
+            .scan(Pcg32::new(6, 6), |r, _| Some(c.select_parent(&ants, 0.0, r)))
             .collect();
         let b: Vec<_> = (0..20)
-            .scan(Pcg32::new(6, 6), |r, _| Some(c.select_parent(&ants, r)))
+            .scan(Pcg32::new(6, 6), |r, _| Some(c.select_parent(&ants, 0.0, r)))
             .collect();
         assert_eq!(a, b);
     }
