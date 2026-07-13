@@ -127,10 +127,16 @@ uniform vec3 uColonyColors[${NUM_COLONY_COLORS}];
 uniform uint uSelectedColony;
 uniform vec2 uSelectedPos;
 uniform bool uHasSelection;
+uniform sampler2D uGlyphAtlas;   // bound here, sampled in the fragment shader
+uniform int uGlyphCols;
 
 out vec3 vColor;
 out vec2 vLocal;
 out float vRing;
+out float vLod;        // 0 = far (glyph), 1 = near (silhouette)
+out float vHeading;    // radians, decoded from aMeta.w
+flat out int vColony;
+flat out int vFlags;
 
 void main() {
   vec2 world = vec2(aPos) / 128.0;
@@ -159,6 +165,17 @@ void main() {
   vRing = (uHasSelection && distance(world, uSelectedPos) < 0.01) ? 1.0 : 0.0;
   if (vRing > 0.5) radiusCells *= 2.0;
 
+  // Pixel radius drives the level-of-detail swap: uZoom is device pixels per
+  // world cell, so radiusCells * uZoom is the ant's on-screen radius.
+  float pxRadius = radiusCells * uZoom;
+  vLod = smoothstep(3.0, 5.0, pxRadius);   // ~6px..~10px diameter blend zone
+
+  // Canonical decode, mirroring headingByteToRadians in sprites.ts and the
+  // Rust encoder: angle = byte/255 * 2PI - PI.
+  vHeading = float(aMeta.w) / 255.0 * 6.2831853 - 3.14159265;
+  vColony = colony;
+  vFlags = int(flags);
+
   vec2 corner = world + vLocal * radiusCells;
   vec3 clip = uView * vec3(corner, 1.0);
   gl_Position = vec4(clip.xy, 0.0, 1.0);
@@ -170,6 +187,12 @@ precision highp float;
 in vec3 vColor;
 in vec2 vLocal;
 in float vRing;
+in float vLod;
+in float vHeading;
+flat in int vColony;
+flat in int vFlags;
+uniform sampler2D uGlyphAtlas;
+uniform int uGlyphCols;
 out vec4 fragColor;
 
 void main() {

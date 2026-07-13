@@ -7,7 +7,9 @@
 
 import { colonyPalette } from "../colors.js";
 import type { Store } from "../state.js";
+import { SHAPES, drawSymbol } from "../symbols.js";
 import { Camera } from "./camera.js";
+import { GLYPH_ATLAS_COLS, glyphCellRect } from "./sprites.js";
 import { ANT_FS, ANT_VS, FIELD_FS, FIELD_VS, QUAD_VERTS, compile } from "./shaders.js";
 
 export class WorldRenderer {
@@ -22,6 +24,7 @@ export class WorldRenderer {
 
   private pheroTex: WebGLTexture;
   private terrainTex: WebGLTexture;
+  private glyphTex: WebGLTexture;
   private pheroSize = { w: 0, h: 0 };
   private terrainSize = { w: 0, h: 0 };
 
@@ -63,6 +66,39 @@ export class WorldRenderer {
     this.antVao = this.makeAntVao();
     this.pheroTex = this.makeTexture();
     this.terrainTex = this.makeTexture();
+    this.glyphTex = this.makeGlyphAtlas();
+  }
+
+  /**
+   * A one-row mask atlas of the 8 colony glyphs, drawn from the same
+   * `drawSymbol` the cards and labels use, so shape is defined once. White on
+   * transparent; the shader multiplies by colony colour. 64px cells give crisp
+   * edges when an ant is only a few pixels on screen.
+   */
+  private makeGlyphAtlas(): WebGLTexture {
+    const cell = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = cell * GLYPH_ATLAS_COLS;
+    canvas.height = cell;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("cannot get 2d context for the glyph atlas");
+    for (let i = 0; i < GLYPH_ATLAS_COLS; i++) {
+      const r = glyphCellRect(i, cell);
+      // Inset (radius < cell/2) so the shape never touches the cell edge and
+      // bleeds into its neighbour when the atlas is sampled with LINEAR.
+      drawSymbol(ctx, SHAPES[i], r.x + cell / 2, r.y + cell / 2, cell * 0.38, "#ffffff");
+    }
+
+    const gl = this.gl;
+    const t = gl.createTexture();
+    if (!t) throw new Error("cannot create glyph atlas texture");
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
   }
 
   private makeTexture(): WebGLTexture {
@@ -226,10 +262,15 @@ export class WorldRenderer {
       gl.useProgram(this.antProg);
       gl.bindVertexArray(this.antVao);
 
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, this.glyphTex);
+
       const au = (n: string) => gl.getUniformLocation(this.antProg, n);
       gl.uniformMatrix3fv(au("uView"), false, view);
       gl.uniform1f(au("uZoom"), this.camera.zoom);
       gl.uniform3fv(au("uColonyColors"), palette);
+      gl.uniform1i(au("uGlyphAtlas"), 2);
+      gl.uniform1i(au("uGlyphCols"), GLYPH_ATLAS_COLS);
 
       const sel = st.detail;
       gl.uniform1i(au("uHasSelection"), sel && sel.alive ? 1 : 0);
