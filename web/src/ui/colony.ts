@@ -11,7 +11,11 @@ import { colonyCss } from "../colors.js";
 import type { ColonyHistory, Store } from "../state.js";
 import { drawSymbol, symbolFor } from "../symbols.js";
 
-export function mountColonies(root: HTMLElement, store: Store): void {
+export function mountColonies(
+  root: HTMLElement,
+  store: Store,
+  onFocus?: (colonyId: number) => void,
+): void {
   const heading = document.createElement("h2");
   heading.textContent = "Colonies";
   root.append(heading);
@@ -25,6 +29,12 @@ export function mountColonies(root: HTMLElement, store: Store): void {
       if (!k) {
         k = card(c.id);
         cards.set(c.id, k);
+        // Clicking a card frames its nest. The whole card is the hit target,
+        // so the sparkline canvas is a valid place to click too.
+        if (onFocus) {
+          k.el.classList.add("clickable");
+          k.el.addEventListener("click", () => onFocus(c.id));
+        }
         root.append(k.el);
       }
       k.name.textContent = store.colonyName(c.id);

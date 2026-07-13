@@ -20,6 +20,7 @@ import type {
   Phero,
   Terrain,
 } from "./protocol.js";
+import { nestCentroids } from "./terrain.js";
 
 /** ~2.5 minutes of stats at 4 fps. Enough to see a trend, cheap to redraw. */
 export const HISTORY_LEN = 600;
@@ -43,6 +44,11 @@ export interface State {
   tick: number;
   detail: AntDetail | null;
   genome: AntGenome | null;
+  /** Nest centroid per colony, in world cells. Recomputed on each terrain
+   * frame; drives the camera snap and the in-world colony popover. */
+  nestCentroids: Map<number, { x: number; y: number }>;
+  /** The colony whose in-world stats popover is open, or null. */
+  selectedColony: number | null;
   config: Map<number, number>;
   history: Map<number, ColonyHistory>;
   colonyMeta: ColonyMeta | null;
@@ -70,6 +76,8 @@ export class Store {
     tick: 0,
     detail: null,
     genome: null,
+    nestCentroids: new Map(),
+    selectedColony: null,
     config: new Map(),
     history: new Map(),
     colonyMeta: null,
@@ -119,6 +127,9 @@ export class Store {
 
   applyTerrain(t: Terrain): void {
     this.state.terrain = t;
+    // Nests can move when the world is reset or reshaped, so recompute rather
+    // than trusting a cache keyed on anything but the frame itself.
+    this.state.nestCentroids = nestCentroids(t);
   }
 
   applyStats(tick: number, colonies: ColonyStat[]): void {
@@ -177,6 +188,19 @@ export class Store {
   clearSelection(): void {
     this.state.detail = null;
     this.state.genome = null;
+    this.state.selectedColony = null;
+    this.notify();
+  }
+
+  /** Open the in-world stats popover for a colony (clicking its nest). */
+  selectColony(id: number): void {
+    this.state.selectedColony = id;
+    this.notify();
+  }
+
+  clearColony(): void {
+    if (this.state.selectedColony === null) return;
+    this.state.selectedColony = null;
     this.notify();
   }
 

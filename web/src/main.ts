@@ -21,9 +21,13 @@ import { mountControls } from "./ui/controls.js";
 import { openContextMenu, type MenuItem } from "./ui/contextmenu.js";
 import { mountInspector } from "./ui/inspector.js";
 import { LabelOverlay } from "./ui/labels.js";
+import { ColonyPanel } from "./ui/colonypanel.js";
 
 /** A drag beyond this many pixels is a pan, not a click on an ant. */
 const CLICK_SLOP_PX = 4;
+
+/** Snapping to a colony frames it at least this close, never zooming out. */
+const FOCUS_ZOOM = 8;
 
 const store = new Store();
 const net = new Net(socketUrl(), store);
@@ -32,6 +36,7 @@ const canvas = document.getElementById("world") as HTMLCanvasElement;
 const overlay = document.getElementById("overlay") as HTMLDivElement;
 const worldWrap = document.getElementById("world-wrap") as HTMLElement;
 const labels = new LabelOverlay(worldWrap);
+const colonyPanel = new ColonyPanel(worldWrap);
 const leftRail = document.getElementById("left-rail") as HTMLElement;
 const rightRail = document.getElementById("right-rail") as HTMLElement;
 
@@ -44,7 +49,7 @@ const coloniesEl = document.createElement("div");
 const chronicleEl = document.createElement("div");
 const inspectorEl = document.createElement("div");
 rightRail.append(coloniesEl, chronicleEl, inspectorEl);
-mountColonies(coloniesEl, store);
+mountColonies(coloniesEl, store, focusColony);
 mountChronicle(chronicleEl, store);
 mountInspector(inspectorEl, store);
 
@@ -128,6 +133,15 @@ function attachPointer(r: WorldRenderer): void {
       net.send(cmdClearSelection());
       return;
     }
+
+    // A click on a nest tile opens that colony's in-world stats popover instead
+    // of selecting the nearest ant — on a nest, colony info is what you want.
+    const colony = nestColonyAt(w.x, w.y);
+    if (colony !== null) {
+      store.selectColony(colony);
+      return;
+    }
+    store.clearColony(); // clicking elsewhere dismisses the popover
     net.send(cmdSelectAt(w.x, w.y));
   });
 
@@ -183,6 +197,19 @@ function nestColonyAt(x: number, y: number): number | null {
   if (tx < 0 || ty < 0 || tx >= t.w || ty >= t.h) return null;
   const nest = t.rgba[(ty * t.w + tx) * 4 + 2];
   return nest === 255 ? null : nest;
+}
+
+/**
+ * Frame a colony's nest: recentre on its centroid and, if zoomed far out, zoom
+ * in to a legible level. Never zooms *out* — clicking a colony you are already
+ * close to should not throw the view backward.
+ */
+function focusColony(colonyId: number): void {
+  const r = renderer;
+  const c = store.state.nestCentroids.get(colonyId);
+  if (!r || !c) return;
+  r.camera.centerOn(c.x, c.y);
+  if (r.camera.zoom < FOCUS_ZOOM) r.camera.zoom = FOCUS_ZOOM;
 }
 
 /** The right-click menu for a world position, tailored to what is under it. */
@@ -252,6 +279,7 @@ function frame(): void {
     const st = store.state;
     if (st.labels) labels.update(r.camera, r.viewW, r.viewH, r.dpr, store);
     else labels.setVisible(false);
+    colonyPanel.update(r.camera, r.viewW, r.viewH, r.dpr, store);
     const ants = st.ants?.count ?? 0;
     overlay.textContent = st.connected
       ? `tick ${st.tick.toLocaleString()}  ·  ${ants.toLocaleString()} ants  ·  ${r.camera.zoom.toFixed(1)}x`

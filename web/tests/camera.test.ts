@@ -104,6 +104,15 @@ describe("camera", () => {
     }
   });
 
+  it("centerOn puts a world cell at the viewport centre", () => {
+    const c = new Camera(512, 512);
+    c.zoom = 5;
+    c.centerOn(400, 90);
+    const s = c.worldToScreen(400, 90, VIEW_W, VIEW_H);
+    expect(s.x).toBeCloseTo(VIEW_W / 2, 4);
+    expect(s.y).toBeCloseTo(VIEW_H / 2, 4);
+  });
+
   it("world y grows downward on screen", () => {
     // The grid is row-major from y=0 at the top. If this inverts, the map is
     // drawn upside down and every pheromone gradient reads backwards.

@@ -233,3 +233,34 @@ describe("playback state", () => {
     expect(s.state.layers.food).toBe(true);
   });
 });
+
+describe("colony selection", () => {
+  it("selects and clears the in-world colony popover", () => {
+    const s = new Store();
+    expect(s.state.selectedColony).toBe(null);
+    s.selectColony(3);
+    expect(s.state.selectedColony).toBe(3);
+    s.clearColony();
+    expect(s.state.selectedColony).toBe(null);
+  });
+
+  it("clearSelection also dismisses the colony popover", () => {
+    // Escape and empty-ground clicks call clearSelection; both should close the
+    // popover, not just deselect the ant.
+    const s = new Store();
+    s.selectColony(1);
+    s.clearSelection();
+    expect(s.state.selectedColony).toBe(null);
+  });
+
+  it("caches nest centroids from the terrain frame", () => {
+    const s = new Store();
+    const rgba = new Uint8Array(2 * 2 * 4);
+    rgba[(1 * 2 + 1) * 4 + 2] = 0; // colony 0 owns texel (1,1)
+    rgba[0 * 4 + 2] = 255; // others unowned
+    rgba[1 * 4 + 2] = 255;
+    rgba[2 * 4 + 2] = 255;
+    s.applyTerrain({ kind: "terrain", w: 2, h: 2, factor: 4, rgba, tick: 5 } as never);
+    expect(s.state.nestCentroids.get(0)).toEqual({ x: 6, y: 6 });
+  });
+});

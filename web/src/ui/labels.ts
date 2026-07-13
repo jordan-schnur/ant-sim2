@@ -52,7 +52,6 @@ export function projectToCss(
 export class LabelOverlay {
   private root: HTMLElement;
   private nodes = new Map<string, HTMLElement>();
-  private nestCentroids: { colony: number; x: number; y: number }[] = [];
   private foodCentroids: { x: number; y: number }[] = [];
   private terrainTick = -1;
 
@@ -80,13 +79,16 @@ export class LabelOverlay {
     }
 
     const anchors: Anchor[] = [];
-    for (const n of this.nestCentroids) {
+    for (const [colony, n] of store.state.nestCentroids) {
+      // The open popover already names this nest; a label under it just doubles
+      // the text and fights the popover's pointer.
+      if (colony === store.state.selectedColony) continue;
       anchors.push({
-        key: `nest-${n.colony}`,
+        key: `nest-${colony}`,
         wx: n.x,
         wy: n.y,
-        text: store.colonyName(n.colony),
-        colony: n.colony,
+        text: store.colonyName(colony),
+        colony,
       });
     }
     for (let i = 0; i < this.foodCentroids.length; i++) {
@@ -107,30 +109,14 @@ export class LabelOverlay {
     this.placeLabels(anchors, camera, viewW, viewH, dpr);
   }
 
-  /** Nest centroids from the terrain B channel; food clusters from the R channel. */
+  /**
+   * Food clusters from the terrain R channel. Nest centroids come from the
+   * store (see `Store.nestCentroids`), shared with the camera snap and popover.
+   */
   private recomputeTerrainAnchors(store: Store): void {
     const t = store.state.terrain;
     if (!t) return;
     const { w, h, factor, rgba } = t;
-
-    // --- Nest centroids: mean of each colony's nest texels. ---
-    const sums = new Map<number, { sx: number; sy: number; n: number }>();
-    for (let ty = 0; ty < h; ty++) {
-      for (let tx = 0; tx < w; tx++) {
-        const nest = rgba[(ty * w + tx) * 4 + 2];
-        if (nest === 255) continue;
-        const s = sums.get(nest) ?? { sx: 0, sy: 0, n: 0 };
-        s.sx += tx;
-        s.sy += ty;
-        s.n += 1;
-        sums.set(nest, s);
-      }
-    }
-    this.nestCentroids = [...sums.entries()].map(([colony, s]) => ({
-      colony,
-      x: (s.sx / s.n + 0.5) * factor,
-      y: (s.sy / s.n + 0.5) * factor,
-    }));
 
     // --- Food clusters: connected components over bright food texels. ---
     const seen = new Uint8Array(w * h);

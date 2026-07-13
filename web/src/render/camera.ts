@@ -48,6 +48,12 @@ export class Camera {
     this.cy -= dyPx / this.zoom;
   }
 
+  /** Put a world cell at the centre of the viewport. */
+  centerOn(x: number, y: number): void {
+    this.cx = x;
+    this.cy = y;
+  }
+
   screenToWorld(sx: number, sy: number, viewW: number, viewH: number): { x: number; y: number } {
     return {
       x: this.cx + (sx - viewW / 2) / this.zoom,

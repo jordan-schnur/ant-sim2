@@ -89,6 +89,8 @@
       .slider input { width: 100%; margin: 2px 0 0; accent-color: var(--accent); }
 
       .colony { border: 1px solid var(--line); border-radius: 5px; padding: 8px; margin-bottom: 8px; background: var(--panel-2); }
+      .colony.clickable { cursor: pointer; }
+      .colony.clickable:hover { border-color: var(--accent); }
       .colony .title { display: flex; align-items: center; gap: 7px; font-weight: 600; margin-bottom: 5px; }
       .swatch { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 11px; }
       .swatch-glyph { width: 13px; height: 13px; flex: 0 0 13px; }
@@ -111,6 +113,12 @@
       .labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
       .map-label { position: absolute; display: flex; align-items: center; gap: 4px; transform: translate(-50%, -50%); white-space: nowrap; font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000, 0 0 4px #000; padding: 1px 4px; background: rgba(0,0,0,0.35); border-radius: 4px; }
       .map-label-glyph { width: 12px; height: 12px; }
+
+      /* In-world colony popover: sits above the nest it names and points down
+         at it. Non-interactive so map clicks pass through to the canvas. */
+      .colony-popover { position: absolute; transform: translate(-50%, calc(-100% - 12px)); min-width: 132px; background: rgba(12,12,15,0.94); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-size: 12px; color: var(--text); pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.55); z-index: 5; }
+      .colony-popover .title { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; }
+      .colony-popover::after { content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid var(--line); }
 
       #inspector .kv { margin-bottom: 2px; }
       #nn { width: 100%; height: 260px; display: block; background: #0a0a0c; border: 1px solid var(--line); border-radius: 5px; margin-top: 8px; }
