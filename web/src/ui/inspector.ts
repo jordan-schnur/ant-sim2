@@ -1,102 +1,144 @@
 /**
- * Right rail, lower half: the selected ant, and its network drawn live.
- *
- * A selected ant can die between frames. The server says so with the `alive`
- * byte, and this says so too, rather than freezing on numbers that stopped
- * being true.
+ * The selected ant: identity, energy economy, a fitness headline, its traits
+ * and outputs, and its network drawn live. Rendered into a caller-supplied
+ * container + canvas so the Explorer tab can host it.
  */
 
 import { TRAIT_NAMES } from "../protocol.js";
 import type { Store } from "../state.js";
 import { draw as drawNet } from "./nnview.js";
+import { fitness, DEFAULT_HARVEST_WEIGHT, HARVEST_WEIGHT_FIELD } from "../fitness.js";
+import { tipLabel } from "./tooltips.js";
 
 const OUTPUT_NAMES = ["turn", "throttle", "attack", "grab", "mem0", "mem1", "mem2", "mem3"];
 
+/** Render the selected ant into `body`, painting its NN into `canvas`. */
+export function renderAntDetail(
+  body: HTMLElement,
+  canvas: HTMLCanvasElement,
+  store: Store,
+): void {
+  const d = store.state.detail;
+  body.innerHTML = "";
+
+  if (!d) {
+    body.append(muted("click an ant to inspect it"));
+    paint(canvas, null, null);
+    return;
+  }
+  if (!d.alive) {
+    body.append(muted(`ant #${d.id} died`));
+    paint(canvas, null, null);
+    return;
+  }
+
+  const weight = store.state.config.get(HARVEST_WEIGHT_FIELD) ?? DEFAULT_HARVEST_WEIGHT;
+  const fit = fitness(d.foodDelivered, d.foodHarvested, weight);
+
+  // Fitness headline: the one number that answers "how successful is this ant".
+  const head = document.createElement("div");
+  head.className = "fitness";
+  const fl = tipLabel("fitness", "fitness");
+  const fv = document.createElement("b");
+  fv.textContent = fit.toFixed(1);
+  head.append(fl, fv);
+  const brk = document.createElement("div");
+  brk.className = "muted fitness-brk";
+  brk.textContent =
+    `= delivered ${d.foodDelivered.toFixed(0)} + ${weight} × harvested ${d.foodHarvested.toFixed(0)}`;
+  body.append(head, brk);
+
+  const kv = document.createElement("div");
+  kv.className = "kv";
+  const row = (label: string, key: string, value: string) => {
+    kv.append(tipLabel(label, key));
+    const b = document.createElement("b");
+    b.textContent = value;
+    kv.append(b);
+  };
+  row("name", "", d.name || `#${d.id}`);
+  row("id", "", `#${d.id}`);
+  row("colony", "", store.colonyName(d.colony));
+  row("energy", "energy", `${d.energy.toFixed(1)} / ${d.maxEnergy.toFixed(0)}`);
+  row("size", "size", d.size.toFixed(2));
+  row("age", "", String(d.age));
+  row("generation", "generation", String(d.lineage));
+  row("carrying", "carrying", d.carrying.toFixed(2));
+  row("delivered", "delivered", d.foodDelivered.toFixed(1));
+  row("harvested", "harvested", d.foodHarvested.toFixed(1));
+  body.append(kv);
+
+  body.append(heading("Traits"));
+  const tkv = document.createElement("div");
+  tkv.className = "kv";
+  TRAIT_NAMES.forEach((name, i) => {
+    tkv.append(tipLabel(name, name));
+    const b = document.createElement("b");
+    b.textContent = d.traits[i].toFixed(name === "lifespan" ? 0 : 2);
+    tkv.append(b);
+  });
+  body.append(tkv);
+
+  body.append(heading("Outputs"));
+  const okv = document.createElement("div");
+  okv.className = "kv";
+  OUTPUT_NAMES.forEach((name, i) => {
+    const s = document.createElement("span");
+    s.textContent = name;
+    const b = document.createElement("b");
+    b.textContent = d.outputs[i].toFixed(3);
+    okv.append(s, b);
+  });
+  body.append(okv);
+
+  body.append(evolutionExplainer());
+  paint(canvas, d, store.state.genome?.params ?? null);
+}
+
+/** Kept so any remaining caller still works; main.ts now uses the Explorer. */
 export function mountInspector(root: HTMLElement, store: Store): void {
-  const h = document.createElement("h2");
-  h.textContent = "Ant";
+  const h = heading("Ant");
   const body = document.createElement("div");
   body.id = "inspector";
   const canvas = document.createElement("canvas");
   canvas.id = "nn";
   root.append(h, body, canvas);
-
-  const render = () => {
-    const d = store.state.detail;
-    body.innerHTML = "";
-
-    if (!d) {
-      const p = document.createElement("div");
-      p.className = "muted";
-      p.textContent = "click an ant to inspect it";
-      body.append(p);
-      paint(canvas, null, null);
-      return;
-    }
-
-    if (!d.alive) {
-      const p = document.createElement("div");
-      p.className = "muted";
-      p.textContent = `ant #${d.id} died`;
-      body.append(p);
-      paint(canvas, null, null);
-      return;
-    }
-
-    const kv = document.createElement("div");
-    kv.className = "kv";
-    const row = (k: string, v: string) => {
-      const a = document.createElement("span");
-      a.textContent = k;
-      const b = document.createElement("b");
-      b.textContent = v;
-      kv.append(a, b);
-    };
-
-    row("name", d.name || `#${d.id}`);
-    row("id", `#${d.id}`);
-    row("colony", store.colonyName(d.colony));
-    row("energy", `${d.energy.toFixed(1)} / ${d.maxEnergy.toFixed(0)}`);
-    row("size", d.size.toFixed(2));
-    row("age", String(d.age));
-    row("generation", String(d.lineage));
-    row("carrying", d.carrying.toFixed(2));
-    row("delivered", d.foodDelivered.toFixed(1));
-    body.append(kv);
-
-    const th = document.createElement("h2");
-    th.textContent = "Traits";
-    body.append(th);
-    const tkv = document.createElement("div");
-    tkv.className = "kv";
-    TRAIT_NAMES.forEach((name, i) => {
-      const a = document.createElement("span");
-      a.textContent = name;
-      const b = document.createElement("b");
-      b.textContent = d.traits[i].toFixed(name === "lifespan" ? 0 : 2);
-      tkv.append(a, b);
-    });
-    body.append(tkv);
-
-    const oh = document.createElement("h2");
-    oh.textContent = "Outputs";
-    body.append(oh);
-    const okv = document.createElement("div");
-    okv.className = "kv";
-    OUTPUT_NAMES.forEach((name, i) => {
-      const a = document.createElement("span");
-      a.textContent = name;
-      const b = document.createElement("b");
-      b.textContent = d.outputs[i].toFixed(3);
-      okv.append(a, b);
-    });
-    body.append(okv);
-
-    paint(canvas, d, store.state.genome?.params ?? null);
-  };
-
+  const render = () => renderAntDetail(body, canvas, store);
   store.subscribe(render);
   render();
+}
+
+function muted(text: string): HTMLElement {
+  const p = document.createElement("div");
+  p.className = "muted";
+  p.textContent = text;
+  return p;
+}
+
+function heading(text: string): HTMLElement {
+  const h = document.createElement("h2");
+  h.textContent = text;
+  return h;
+}
+
+/** A collapsed <details> explaining the evolutionary loop the fitness feeds. */
+function evolutionExplainer(): HTMLElement {
+  const d = document.createElement("details");
+  d.className = "explainer";
+  const s = document.createElement("summary");
+  s.textContent = "How evolution works";
+  const p = document.createElement("p");
+  p.textContent =
+    "An ant's brain is fixed for life — it never learns. Adaptation happens " +
+    "across generations, per colony. An ant's success is its fitness (food " +
+    "carried home, plus a small credit for food it's still holding). When a " +
+    "colony can afford a birth, it picks a parent in proportion to fitness, so " +
+    "the best foragers have the most offspring; each child is a mutated copy of " +
+    "the parent's brain. A per-colony hall of fame keeps the fittest genomes, so " +
+    "a colony that nearly dies re-seeds from its best-ever ants. You can see it " +
+    "working when delivered rises while generation climbs.";
+  d.append(s, p);
+  return d;
 }
 
 function paint(

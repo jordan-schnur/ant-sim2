@@ -123,7 +123,7 @@ function card(id: number) {
  * magnitudes differ by orders of magnitude between a foraging colony and one
  * that never found food.
  */
-function sparkline(canvas: HTMLCanvasElement, h: ColonyHistory, id: number): void {
+export function sparkline(canvas: HTMLCanvasElement, h: ColonyHistory, id: number): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
   const ht = Math.max(1, Math.round(canvas.clientHeight * dpr));
