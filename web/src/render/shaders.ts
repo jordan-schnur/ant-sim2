@@ -196,12 +196,13 @@ uniform sampler2D uGlyphAtlas;
 uniform int uGlyphCols;
 out vec4 fragColor;
 
-// Union of three circles along the +y (heading-forward) axis: abdomen, thorax,
-// head. Returns soft coverage in [0,1]. p is in the rotated unit square.
+// Union of three circles along the +x axis, which IS the heading direction:
+// the sim moves each ant by (cos h, sin h), so forward must be +x. abdomen,
+// thorax, head. Returns soft coverage in [0,1]. p is in the ant's local frame.
 float antSilhouette(vec2 p) {
-  float d = length(p - vec2(0.0, -0.45)) - 0.50; // abdomen
-  d = min(d, length(p - vec2(0.0,  0.05)) - 0.32); // thorax
-  d = min(d, length(p - vec2(0.0,  0.50)) - 0.26); // head
+  float d = length(p - vec2(-0.45, 0.0)) - 0.50; // abdomen
+  d = min(d, length(p - vec2( 0.05, 0.0)) - 0.32); // thorax
+  d = min(d, length(p - vec2( 0.50, 0.0)) - 0.26); // head
   return smoothstep(0.06, -0.06, d);
 }
 
@@ -212,9 +213,10 @@ void main() {
   float u = (cell + cellUv.x) / float(uGlyphCols);
   float glyphA = texture(uGlyphAtlas, vec2(u, cellUv.y)).a;
 
-  // Silhouette (near): rotate local coords by -heading so +y points along it.
-  float s = sin(-vHeading), c = cos(-vHeading);
-  vec2 rp = mat2(c, -s, s, c) * vLocal;
+  // Silhouette (near): rotate local coords into the ant's frame by Rot(-h), so
+  // world heading (cos h, sin h) maps to local +x — the body's forward axis.
+  float s = sin(vHeading), c = cos(vHeading);
+  vec2 rp = mat2(c, -s, s, c) * vLocal;   // = Rot(-h) * vLocal
   float silA = antSilhouette(rp);
 
   float alpha = mix(glyphA, silA, vLod);
@@ -225,7 +227,7 @@ void main() {
   // Carrying load dot at the head, only meaningful near; fade in with vLod.
   bool carrying = (vFlags & 1) != 0;
   if (carrying) {
-    float dot = smoothstep(0.20, 0.10, length(rp - vec2(0.0, 0.5)));
+    float dot = smoothstep(0.20, 0.10, length(rp - vec2(0.5, 0.0)));
     col = mix(col, vec3(1.0, 0.95, 0.55), dot * vLod);
   }
 
