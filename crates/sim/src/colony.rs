@@ -12,6 +12,9 @@ pub const PARENT_EPS: f32 = 1.0;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ColonyState {
     pub id: u8,
+    /// Display name, generated deterministically from `(seed, id)` at worldgen.
+    /// Empty only for a `ColonyState::new` built outside worldgen (tests).
+    pub name: String,
     pub store: f32,
     pub nest_tiles: Vec<usize>,
     pub nest_center: (f32, f32),
@@ -46,6 +49,7 @@ impl ColonyState {
     pub fn new(id: u8) -> Self {
         ColonyState {
             id,
+            name: String::new(),
             store: 0.0,
             nest_tiles: Vec::new(),
             nest_center: (0.0, 0.0),

@@ -39,7 +39,7 @@ pub struct World {
 impl World {
     pub fn new(cfg: &Config, seed: u64) -> Self {
         let mut rng = Pcg32::new(seed, 0xA17);
-        let (grid, colonies) = generate(cfg, &mut rng);
+        let (grid, colonies) = generate(cfg, seed, &mut rng);
 
         let mut ants = Ants::new();
         let mut next_id = 0u64;
