@@ -53,6 +53,7 @@ export interface State {
   paused: boolean;
   speed: Speed;
   layers: { food: boolean; alarm: boolean; scent: boolean };
+  labels: boolean;
   pheroResLog2: number;
 }
 
@@ -76,6 +77,7 @@ export class Store {
     paused: true,
     speed: 0,
     layers: { food: true, alarm: false, scent: true },
+    labels: true,
     pheroResLog2: 8,
   };
 
@@ -191,6 +193,11 @@ export class Store {
 
   toggleLayer(k: keyof State["layers"]): void {
     this.state.layers[k] = !this.state.layers[k];
+    this.notify();
+  }
+
+  toggleLabels(): void {
+    this.state.labels = !this.state.labels;
     this.notify();
   }
 }

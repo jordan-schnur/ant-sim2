@@ -61,6 +61,8 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     layerBoxes[key] = input;
     root.append(label);
   }
+  const labelsBox = checkbox("labels", store.state.labels, () => store.toggleLabels());
+  root.append(labelsBox.label);
 
   const resRow = div("row");
   const btnRes = button("phero 256²", () => {
@@ -157,6 +159,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     for (const key of ["food", "alarm", "scent"] as const) {
       layerBoxes[key].checked = st.layers[key];
     }
+    labelsBox.input.checked = st.labels;
     btnRes.textContent = st.pheroResLog2 === 9 ? "phero 512²" : "phero 256²";
 
     // Slider positions come from the server's config frame, not from our own

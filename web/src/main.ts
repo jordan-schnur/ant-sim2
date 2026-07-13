@@ -20,6 +20,7 @@ import { mountColonies } from "./ui/colony.js";
 import { mountControls } from "./ui/controls.js";
 import { openContextMenu, type MenuItem } from "./ui/contextmenu.js";
 import { mountInspector } from "./ui/inspector.js";
+import { LabelOverlay } from "./ui/labels.js";
 
 /** A drag beyond this many pixels is a pan, not a click on an ant. */
 const CLICK_SLOP_PX = 4;
@@ -29,6 +30,8 @@ const net = new Net(socketUrl(), store);
 
 const canvas = document.getElementById("world") as HTMLCanvasElement;
 const overlay = document.getElementById("overlay") as HTMLDivElement;
+const worldWrap = document.getElementById("world-wrap") as HTMLElement;
+const labels = new LabelOverlay(worldWrap);
 const leftRail = document.getElementById("left-rail") as HTMLElement;
 const rightRail = document.getElementById("right-rail") as HTMLElement;
 
@@ -247,6 +250,8 @@ function frame(): void {
   if (r) {
     r.draw();
     const st = store.state;
+    if (st.labels) labels.update(r.camera, r.viewW, r.viewH, r.dpr, store);
+    else labels.setVisible(false);
     const ants = st.ants?.count ?? 0;
     overlay.textContent = st.connected
       ? `tick ${st.tick.toLocaleString()}  ·  ${ants.toLocaleString()} ants  ·  ${r.camera.zoom.toFixed(1)}x`
