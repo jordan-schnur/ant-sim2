@@ -74,7 +74,17 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
   resRow.append(btnRes);
   root.append(resRow);
 
-  root.append(section("Tuning"));
+  // The tuning sliders are long and rarely touched, so they hide behind a
+  // collapsible header — the save/load/reset row was being pushed off-screen.
+  const tuningHead = document.createElement("button");
+  tuningHead.className = "section-toggle";
+  tuningHead.textContent = "Tuning ▸";
+  const tuningBody = div("tuning-body collapsed");
+  tuningHead.addEventListener("click", () => {
+    const open = tuningBody.classList.toggle("collapsed") === false;
+    tuningHead.textContent = open ? "Tuning ▾" : "Tuning ▸";
+  });
+  root.append(tuningHead);
   const sliders = TUNABLES.map((t) => {
     const wrap = div("slider");
     const head = div("head");
@@ -118,7 +128,8 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     wrap.append(head, input);
     return { t, input, val, wrap };
   });
-  sliders.forEach((s) => root.append(s.wrap));
+  sliders.forEach((s) => tuningBody.append(s.wrap));
+  root.append(tuningBody);
 
   root.append(section("World"));
   const worldRow = div("row");
