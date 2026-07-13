@@ -160,6 +160,7 @@ void main() {
   // Never smaller than ~2 physical pixels: a zoomed-out world of 10k ants must
   // still show where the ants are, not a field of invisible sub-pixel dots.
   float radiusCells = max(0.5 * size, 1.2 / uZoom);
+  if (attacking) radiusCells *= 1.15;   // a fighting ant reads slightly larger
 
   vLocal = aQuad * 2.0 - 1.0;
   vRing = (uHasSelection && distance(world, uSelectedPos) < 0.01) ? 1.0 : 0.0;
@@ -195,16 +196,48 @@ uniform sampler2D uGlyphAtlas;
 uniform int uGlyphCols;
 out vec4 fragColor;
 
-void main() {
-  float r = length(vLocal);
-  if (r > 1.0) discard;   // round, not square
+// Union of three circles along the +y (heading-forward) axis: abdomen, thorax,
+// head. Returns soft coverage in [0,1]. p is in the rotated unit square.
+float antSilhouette(vec2 p) {
+  float d = length(p - vec2(0.0, -0.45)) - 0.50; // abdomen
+  d = min(d, length(p - vec2(0.0,  0.05)) - 0.32); // thorax
+  d = min(d, length(p - vec2(0.0,  0.50)) - 0.26); // head
+  return smoothstep(0.06, -0.06, d);
+}
 
+void main() {
+  // Glyph (far): sample the colony's cell from the atlas. vLocal is [-1,1].
+  vec2 cellUv = vLocal * 0.5 + 0.5;
+  float cell = float(vColony - (vColony / uGlyphCols) * uGlyphCols); // colony % cols
+  float u = (cell + cellUv.x) / float(uGlyphCols);
+  float glyphA = texture(uGlyphAtlas, vec2(u, cellUv.y)).a;
+
+  // Silhouette (near): rotate local coords by -heading so +y points along it.
+  float s = sin(-vHeading), c = cos(-vHeading);
+  vec2 rp = mat2(c, -s, s, c) * vLocal;
+  float silA = antSilhouette(rp);
+
+  float alpha = mix(glyphA, silA, vLod);
+  if (alpha < 0.5 && vRing < 0.5) discard;
+
+  vec3 col = vColor;
+
+  // Carrying load dot at the head, only meaningful near; fade in with vLod.
+  bool carrying = (vFlags & 1) != 0;
+  if (carrying) {
+    float dot = smoothstep(0.20, 0.10, length(rp - vec2(0.0, 0.5)));
+    col = mix(col, vec3(1.0, 0.95, 0.55), dot * vLod);
+  }
+
+  // Selection halo (unchanged behaviour): a white ring on the outer edge.
+  float r = length(vLocal);
   if (vRing > 0.5 && r > 0.62) {
-    fragColor = vec4(1.0, 1.0, 1.0, 1.0);  // selection halo
+    fragColor = vec4(1.0, 1.0, 1.0, 1.0);
     return;
   }
+
   // A touch of edge darkening so overlapping ants remain countable.
-  fragColor = vec4(vColor * (1.0 - 0.35 * r * r), 1.0);
+  fragColor = vec4(col * (1.0 - 0.35 * r * r), 1.0);
 }`;
 
 // --- Compilation ----------------------------------------------------------
