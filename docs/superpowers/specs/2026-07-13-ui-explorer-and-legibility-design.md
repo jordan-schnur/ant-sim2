@@ -1,7 +1,9 @@
 # UI Pass: Explorer Tabs, Ant Popover, and Number Legibility — Design
 
 **Date:** 2026-07-13
-**Scope:** `web/` only. No server, sim, or wire-format changes.
+**Scope:** `web/`, plus one additive server/wire field (`foodHarvested` on the
+ant-detail frame) so the exact ant fitness number can be shown. No sim behavior
+changes.
 
 ## Goal
 
@@ -39,6 +41,32 @@ Verified against `crates/sim/src/apply.rs`, `reproduce.rs`, `world.rs`.
 - **generation** (`meanLineage` / `lineage`) — mean/individual lineage depth.
 - **pop / store / delivered** together: pop = ants alive now; store = spendable
   fund; delivered = lifetime brought home.
+- **fitness** (per ant) — the scalar that decides success:
+  `fitness = delivered + harvest_weight * harvested` (`Config::fitness`,
+  `harvest_weight` default 0.02). Delivered dominates; harvested is a ~2%
+  tie-breaker so an ant carrying food it hasn't banked isn't scored as zero.
+  This is the number selection is proportional to.
+
+### How evolution works (source of truth for the in-UI explainer)
+
+An ant's neural net is fixed for life — it never learns. Adaptation happens
+*across generations* via a genetic algorithm, per colony (gene pools never mix):
+
+1. **Fitness** = `delivered + 0.02 * harvested` — essentially "food carried
+   home."
+2. **Selection**: a paid birth picks its parent by fitness-proportionate
+   roulette over the colony's living ants (`select_parent`), with a small
+   epsilon so zero-fitness ants aren't strictly excluded. Higher fitness → far
+   more offspring.
+3. **Mutation**: the child's genome is the parent's, perturbed — each weight has
+   `mutation_rate` (0.08) chance to jitter by `mutation_sigma` (0.05), with rare
+   `big_jump_chance` (0.002) large jumps. Traits clamp to legal ranges.
+4. **Hall of fame**: on death, a genome is archived keyed by fitness (size 10).
+   Free floor-spawns below the extinction floor breed from this archive
+   (`archive_parent`), favoring the fittest genome — so a near-extinction
+   re-seeds from the colony's best-ever foragers, not from scratch.
+5. **Signal it's working**: `delivered` rising while `generation` (mean lineage
+   depth) climbs — later generations foraging better than earlier ones.
 
 ## Current structure (for reference)
 
@@ -138,10 +166,47 @@ one place. Core copy:
 - **pop** — "Ants alive right now."
 - Tile pheromone rows (food/alarm/scent/owner) get one-liners too.
 
+### 6. Ant fitness / success number
+
+The ant view (both the in-world popover and the Explorer) shows the ant's
+**fitness** as the headline "how successful is this ant" number:
+
+```
+fitness  1,247.4
+  = delivered 1,240  +  0.02 x harvested 372
+```
+
+- Computed client-side as `foodDelivered + harvestWeight * foodHarvested`.
+- `harvestWeight` is read from the config frame (`state.config`) by its field
+  id; if config hasn't arrived, fall back to the default 0.02.
+- Requires **one additive wire field**: add `foodHarvested` to the ant-detail
+  frame. `Ants` already tracks `food_harvested` per ant (`retain_alive` retains
+  it); the detail frame simply doesn't serialize it yet. Server-side: append it
+  to the `AntDetail` encoder; client-side: add `foodHarvested: number` to the
+  `AntDetail` interface and decode it. Update the wire-format guard test to the
+  new detail-frame length.
+- The fitness label carries the tooltip: "An ant's success: food carried home
+  (`delivered`) plus a small 2% credit for food it's still holding
+  (`harvested`). Ants with higher fitness are chosen as parents more often."
+
+### 7. Evolution explainer
+
+Because the fitness number is meaningless without the loop it feeds, add a
+compact **"How evolution works"** explainer, reachable from the ant view:
+a collapsible blurb (default collapsed) summarizing the five points from the
+"How evolution works" section above in one short paragraph — brain is fixed for
+life; success = food home; fitter ants breed more; children are mutated; a hall
+of fame re-seeds crashed colonies; watch delivered rise as generation climbs.
+Static copy, no new data. Lives in the Explorer's ant view (and its text is the
+one place the mechanics are spelled out).
+
 ## Non-goals (YAGNI)
 
-- No server, sim, or wire-format changes. Tile data is derived from frames the
-  client already receives.
+- No sim behavior changes. The only server touch is serializing an
+  already-tracked field (`food_harvested`) into the ant-detail frame.
+- No other wire changes. Tile data is derived from frames the client already
+  receives; the hall-of-fame archive is *not* put on the wire (the delivered
+  curve + generation already show evolution at the colony level).
 - No new chart types — the Explorer's colony view reuses the colony card chart.
 - No NN thumbnail in the popover.
 - No draggable/resizable/pinnable windows — the popover and Explorer are enough.
@@ -162,6 +227,12 @@ GL). Concretely:
   `ColonyStat[]`.
 - **Tooltip copy** (new pure map): every stat key used by the panels has a
   non-empty tooltip string (guards against a label with no definition).
+- **Fitness computation** (new pure helper): `fitness(delivered, harvested,
+  harvestWeight)` returns `delivered + harvestWeight * harvested`; mirrors
+  `Config::fitness` so a drift on either side is caught.
+- **Wire round-trip** (server side, Rust): the ant-detail frame encodes and the
+  decoder recovers `food_harvested`; the wire-format guard's expected
+  detail-frame length is updated to match.
 - Keep the existing camera/label/terrain tests green.
 
 ## Open items resolved as defaults (revisit freely)
@@ -182,8 +253,13 @@ GL). Concretely:
 - `web/src/ui/antpopover.ts` (new) — in-world ant popover (mirrors
   `colonypanel.ts`).
 - `web/src/ui/inspector.ts` — factor the ant-detail rendering so the Explorer
-  can call it; add tooltips.
+  can call it; add the fitness row, tooltips, and the evolution explainer.
 - `web/src/ui/colony.ts` / `colonypanel.ts` — tooltips; colony card chart made
   callable from the Explorer.
+- `web/src/fitness.ts` (new) — pure `fitness(delivered, harvested, weight)` +
+  the `harvest_weight` config field-id constant.
 - `web/src/main.ts` — wire tabs, Alt-click tile selection, popover, hotkey line.
 - `web/index.html` — tab strip, tooltip, popover, hotkey-line styles.
+- `crates/server/src/protocol.rs` (or wherever `AntDetail` is encoded) — append
+  `food_harvested` to the ant-detail frame; update the wire-format guard length.
+- `web/src/protocol.ts` — add `foodHarvested` to `AntDetail` and decode it.
