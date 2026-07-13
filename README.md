@@ -87,9 +87,22 @@ extinction floor bred from those same ten genomes forever. Two of eight colonies
 delivered *exactly zero* across half a million ticks because of it. Fixing the
 archive doubled total delivery.
 
+Selection is now **shaped**: fitness is `food_delivered + harvest_weight ·
+food_harvested`, so grabbing food into cargo is a dense stepping stone toward
+carrying it home, not an all-or-nothing cliff. `harvest_weight` is on the tuning
+rail (field 16); `0` recovers the original delivery-only thesis exactly. This
+measurably improved foraging — colonies that used to deliver *nothing* now
+deliver thousands of units. See
+[`docs/superpowers/notes/2026-07-13-shaped-fitness-growth-result.md`](docs/superpowers/notes/2026-07-13-shaped-fitness-growth-result.md).
+
 What remains is real and unfixed: **most ants are still born from the extinction
 floor rather than paid for out of a colony's food store** — the safety net, not
-the economy, is doing the reproducing. Read
+the economy, is doing the reproducing. Shaped fitness did not change this, and
+the reason is now understood: a colony's best foragers deliver food at ~4× *less*
+than its ants burn in upkeep, so the store never accumulates the `birth_cost`
+needed to pay for a birth. Growth past the extinction floor is an **economic**
+problem, not a fitness one — the levers are `birth_cost`, `refuel_rate`,
+`harvest_rate`, and the trait-tax upkeep, all on the rail. Read
 [`docs/superpowers/notes/2026-07-09-first-500k-tick-run.md`](docs/superpowers/notes/2026-07-09-first-500k-tick-run.md)
 before tuning anything. In particular, note that seed-to-seed variance in total
 food delivered spans two orders of magnitude, so a single run tells you nothing.
