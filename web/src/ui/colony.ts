@@ -9,6 +9,7 @@
 
 import { colonyCss } from "../colors.js";
 import type { ColonyHistory, Store } from "../state.js";
+import { drawSymbol, symbolFor } from "../symbols.js";
 
 export function mountColonies(root: HTMLElement, store: Store): void {
   const heading = document.createElement("h2");
@@ -65,9 +66,14 @@ function card(id: number) {
 
   const title = document.createElement("div");
   title.className = "title";
-  const sw = document.createElement("span");
-  sw.className = "swatch";
-  sw.style.background = colonyCss(id);
+  // A shape as well as a colour: colourblind viewers cannot rely on the swatch
+  // hue alone. Same glyph the map labels use.
+  const sw = document.createElement("canvas");
+  sw.className = "swatch-glyph";
+  sw.width = 22;
+  sw.height = 22;
+  const sctx = sw.getContext("2d");
+  if (sctx) drawSymbol(sctx, symbolFor(id), 11, 11, 8, colonyCss(id));
   const name = document.createElement("span");
   name.textContent = `colony ${id}`;
   title.append(sw, name);
