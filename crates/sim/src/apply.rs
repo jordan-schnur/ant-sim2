@@ -310,7 +310,8 @@ pub fn sweep_deaths(ants: &mut Ants, ctx: &mut ApplyCtx) {
 
         let colony = &mut ctx.colonies[ants.colony[i] as usize];
         colony.record_death(
-            ctx.cfg.fitness(ants.food_delivered[i], ants.food_harvested[i], ants.food_homing[i]),
+            // TODO(task 4): use recent_productivity
+            ctx.cfg.fitness(ants.food_delivered[i], ants.food_harvested[i], ants.food_homing[i], 0.0),
             ants.lineage[i],
             &ants.genome[i],
             ctx.cfg.hall_of_fame_size,
