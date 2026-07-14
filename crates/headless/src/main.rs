@@ -58,6 +58,7 @@ fn apply_override(cfg: &mut Config, spec: &str) -> Result<(), String> {
         "max_energy_per_size" => cfg.max_energy_per_size = f(value)?,
         "growth_threshold" => cfg.growth_threshold = f(value)?,
         "harvest_weight" => cfg.harvest_weight = f(value)?,
+        "homing_weight" => cfg.homing_weight = f(value)?,
         "food_patch_count" => cfg.food_patch_count = u(value)?,
         "food_patch_max" => cfg.food_patch_max = f(value)?,
         "food_regrow" => cfg.food_regrow = f(value)?,
