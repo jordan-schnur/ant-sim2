@@ -40,7 +40,7 @@ const colony = (id: number, over: Partial<ColonyStat> = {}): ColonyStat => ({
   store: 1,
   births: 0,
   deaths: 0,
-  floorSpawns: 0,
+  refounds: 0,
   meanSize: 1,
   meanLineage: 1,
   deliveredTotal: 0,
@@ -73,10 +73,10 @@ describe("dispatch", () => {
     expect(store.state.detail?.alive).toBe(true);
 
     net.dispatch(load("genome.bin"));
-    expect(store.state.genome?.params.length).toBe(1160);
+    expect(store.state.genome?.params.length).toBe(1240);
 
     net.dispatch(load("config.bin"));
-    expect(store.state.config.size).toBe(18);
+    expect(store.state.config.size).toBe(21);
   });
 
   it("ignores an unknown tag rather than throwing", () => {

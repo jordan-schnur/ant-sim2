@@ -9,16 +9,27 @@
 
 import { N_INPUTS, N_OUTPUTS } from "./protocol.js";
 
-// --- Whiskers: 5 directions x 6 channels = the first 30 inputs. ---
+// --- Whiskers: 5 directions x 7 channels = the first 35 inputs. ---
 // Angles in sense.rs are [-1.2, -0.6, 0, 0.6, 1.2] rad, relative to heading.
 export const WHISKER_DIRS = ["far left", "left", "ahead", "right", "far right"] as const;
-/** One channel name per whisker slot, in sense.rs's CH_* order. */
-export const CHANNELS = ["food", "trail", "alarm", "own scent", "foe scent", "wall"] as const;
+/** One channel name per whisker slot, in sense.rs's CH_* order. `trail` (index
+ *  1) is the food pheromone; `own trail` (index 6) is the colony recent-path
+ *  signal, a distinct field. */
+export const CHANNELS = [
+  "food",
+  "food trail",
+  "alarm",
+  "own scent",
+  "foe scent",
+  "wall",
+  "own trail",
+] as const;
 /** Short forms for the compact whisker grid header. */
-export const CHANNEL_ABBR = ["food", "trail", "alarm", "mine", "foe", "wall"] as const;
+export const CHANNEL_ABBR = ["food", "ftrl", "alarm", "mine", "foe", "wall", "trail"] as const;
 
 const WHISKERS = WHISKER_DIRS.length; // 5
-const CH = CHANNELS.length; // 6
+const CH = CHANNELS.length; // 7
+const WHISKER_INPUTS = WHISKERS * CH; // 35
 
 /** A contiguous run of inputs that means one thing, for grouped display. */
 export interface InputGroup {
@@ -27,16 +38,24 @@ export interface InputGroup {
   len: number;
 }
 
-// Offsets copied verbatim from sense.rs. IN_WHISKERS=0, IN_UNDERFOOT=30,
-// IN_COUNTS=33, IN_PROPRIO=35, IN_BIAS=39, IN_MEMORY=40.
+// Offsets derived from sense.rs's layout: after the whisker block come
+// IN_UNDERFOOT (3), IN_COUNTS (2), IN_PROPRIO (4), IN_BIAS (1), IN_MEMORY (4),
+// IN_HEADING (2). Deriving from WHISKER_INPUTS keeps them correct as CH grows.
+const UNDERFOOT_START = WHISKER_INPUTS; // 35
+const CROWD_START = UNDERFOOT_START + 3; // 38
+const BODY_START = CROWD_START + 2; // 40
+const BIAS_START = BODY_START + 4; // 44
+const MEMORY_START = BIAS_START + 1; // 45
+const FACING_START = MEMORY_START + 4; // 49
+
 export const INPUT_GROUPS: InputGroup[] = [
-  { name: "whiskers", start: 0, len: WHISKERS * CH }, // 0..30
-  { name: "underfoot", start: 30, len: 3 },
-  { name: "crowd", start: 33, len: 2 },
-  { name: "body", start: 35, len: 4 },
-  { name: "bias", start: 39, len: 1 },
-  { name: "memory", start: 40, len: 4 },
-  { name: "facing", start: 44, len: 2 }, // sin, cos of the ant's own heading
+  { name: "whiskers", start: 0, len: WHISKER_INPUTS },
+  { name: "underfoot", start: UNDERFOOT_START, len: 3 },
+  { name: "crowd", start: CROWD_START, len: 2 },
+  { name: "body", start: BODY_START, len: 4 },
+  { name: "bias", start: BIAS_START, len: 1 },
+  { name: "memory", start: MEMORY_START, len: 4 },
+  { name: "facing", start: FACING_START, len: 2 }, // sin, cos of the ant's heading
 ];
 
 // Non-whisker input names, index-aligned to their group starts.
@@ -46,17 +65,17 @@ const BODY = ["energy", "size", "carrying", "age"];
 
 /** Full human label for input index `i` (0..N_INPUTS). */
 export function inputLabel(i: number): string {
-  if (i < 30) {
+  if (i < WHISKER_INPUTS) {
     const dir = WHISKER_DIRS[Math.floor(i / CH)];
     const ch = CHANNELS[i % CH];
     return `whisker ${dir} · ${ch}`;
   }
-  if (i < 33) return UNDERFOOT[i - 30];
-  if (i < 35) return CROWD[i - 33];
-  if (i < 39) return BODY[i - 35];
-  if (i === 39) return "bias";
-  if (i < 44) return `memory ${i - 40}`;
-  return i === 44 ? "facing (sin)" : "facing (cos)";
+  if (i < CROWD_START) return UNDERFOOT[i - UNDERFOOT_START];
+  if (i < BODY_START) return CROWD[i - CROWD_START];
+  if (i < BIAS_START) return BODY[i - BODY_START];
+  if (i === BIAS_START) return "bias";
+  if (i < FACING_START) return `memory ${i - MEMORY_START}`;
+  return i === FACING_START ? "facing (sin)" : "facing (cos)";
 }
 
 export const OUTPUT_LABELS = [
