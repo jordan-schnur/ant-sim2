@@ -90,6 +90,8 @@ export const CONFIG_FIELDS = [
   "trail_emission",
   "trail_evaporation",
   "trail_diffusion",
+  "productivity_weight",
+  "productivity_decay",
 ] as const;
 
 export const TRAIT_NAMES = [
