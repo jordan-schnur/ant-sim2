@@ -30,6 +30,28 @@ pub fn wrap_angle(a: f32) -> f32 {
 /// Heading, then translation. One ant per cell, except on nest tiles: without
 /// that exemption newborns could not spawn onto a busy nest and returning
 /// foragers would jam in the doorway.
+/// Can ant `i`, currently in cell `(cx, cy)`, occupy the cell that holds world
+/// point `(px, py)`? Staying inside the current cell is always fine; otherwise
+/// the target must be on the map, not stone, and either a nest tile or a cell
+/// that is empty (or already this ant's).
+fn can_enter(ctx: &ApplyCtx, i: usize, px: f32, py: f32, cx: u16, cy: u16) -> bool {
+    let (tx, ty) = (px.floor() as i32, py.floor() as i32);
+    if tx == cx as i32 && ty == cy as i32 {
+        return true;
+    }
+    if ctx.grid.is_stone(tx, ty) {
+        return false;
+    }
+    let target = ctx.grid.idx_clamped(tx, ty);
+    if ctx.grid.nest[target] != NO_NEST {
+        return true;
+    }
+    match ctx.spatial.occupant(target) {
+        None => true,
+        Some(o) => o as usize == i,
+    }
+}
+
 pub fn apply_movement(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyCtx) {
     ants.memory[i] = intent.memory;
     ants.age[i] += 1;
@@ -41,36 +63,59 @@ pub fn apply_movement(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut Appl
 
     let (cx, cy) = ants.cell(i);
     let cur = ctx.grid.idx(cx, cy);
-    let nx = ants.x[i] + ants.heading[i].cos() * intent.speed;
-    let ny = ants.y[i] + ants.heading[i].sin() * intent.speed;
-    let (tx, ty) = (nx.floor() as i32, ny.floor() as i32);
+    let (x0, y0) = (ants.x[i], ants.y[i]);
+    let dx = ants.heading[i].cos() * intent.speed;
+    let dy = ants.heading[i].sin() * intent.speed;
 
-    // Staying inside the current cell needs no occupancy check.
-    if tx == cx as i32 && ty == cy as i32 {
-        ants.x[i] = nx;
-        ants.y[i] = ny;
-        ants.energy[i] -= ctx.cfg.move_cost * intent.speed;
-        return;
+    // Thigmotaxis: try the full move, then slide along whichever single axis is
+    // open. Without this, a blocked ant freezes against the wall forever — and
+    // since a naive brain issues a near-constant command, it re-aims into the
+    // same wall every tick and never moves again. Sliding lets it follow the
+    // obstacle and keep exploring, the way a real ant traces an edge.
+    let (nx, ny, slid) = if can_enter(ctx, i, x0 + dx, y0 + dy, cx, cy) {
+        (x0 + dx, y0 + dy, false)
+    } else if dx != 0.0 && can_enter(ctx, i, x0 + dx, y0, cx, cy) {
+        (x0 + dx, y0, true)
+    } else if dy != 0.0 && can_enter(ctx, i, x0, y0 + dy, cx, cy) {
+        (x0, y0 + dy, true)
+    } else {
+        return; // boxed in on both axes: nothing to do this tick
+    };
+
+    // When it slides, face where it actually moved, not where it wished to, so
+    // the body and whiskers stay aligned with travel along the wall. A full move
+    // already travels along `heading`, so leave that case untouched.
+    let (mdx, mdy) = (nx - x0, ny - y0);
+    if slid && (mdx != 0.0 || mdy != 0.0) {
+        ants.heading[i] = wrap_angle(mdy.atan2(mdx));
     }
 
-    if ctx.grid.is_stone(tx, ty) {
-        return;
-    }
-    let target = ctx.grid.idx_clamped(tx, ty);
-    let is_nest = ctx.grid.nest[target] != NO_NEST;
-    if !is_nest && ctx.spatial.occupant(target).is_some() {
-        return;
-    }
-
-    if ctx.spatial.occupant(cur) == Some(i as u32) {
-        ctx.spatial.clear_occupant(cur);
-    }
-    if ctx.spatial.occupant(target).is_none() {
-        ctx.spatial.set_occupant(target, i as u32);
+    let target = ctx.grid.idx_clamped(nx.floor() as i32, ny.floor() as i32);
+    if target != cur {
+        if ctx.spatial.occupant(cur) == Some(i as u32) {
+            ctx.spatial.clear_occupant(cur);
+        }
+        if ctx.spatial.occupant(target).is_none() {
+            ctx.spatial.set_occupant(target, i as u32);
+        }
     }
     ants.x[i] = nx;
     ants.y[i] = ny;
-    ants.energy[i] -= ctx.cfg.move_cost * intent.speed;
+    // Pay for distance actually covered, not the commanded speed: a slide moves
+    // along one axis only, so it should cost less than the full diagonal.
+    ants.energy[i] -= ctx.cfg.move_cost * (mdx * mdx + mdy * mdy).sqrt();
+
+    // Homing credit: while carrying food, bank the net progress made back toward
+    // the ant's own nest. This is the fitness gradient the delivery-only signal
+    // lacks — an ant hauling food homeward is closer to a forager than one that
+    // never heads back — and it is what lets a colony bootstrap from random
+    // genomes. Clamped at zero so wandering away never pushes fitness negative.
+    if ants.carrying[i] > 0.0 {
+        let (ncx, ncy) = ctx.colonies[ants.colony[i] as usize].nest_center;
+        let d_before = ((x0 - ncx).powi(2) + (y0 - ncy).powi(2)).sqrt();
+        let d_after = ((nx - ncx).powi(2) + (ny - ncy).powi(2)).sqrt();
+        ants.food_homing[i] = (ants.food_homing[i] + (d_before - d_after)).max(0.0);
+    }
 }
 
 /// A food-trail reading at or above this counts as "a trail led here": enough
@@ -253,7 +298,7 @@ pub fn sweep_deaths(ants: &mut Ants, ctx: &mut ApplyCtx) {
 
         let colony = &mut ctx.colonies[ants.colony[i] as usize];
         colony.record_death(
-            ctx.cfg.fitness(ants.food_delivered[i], ants.food_harvested[i]),
+            ctx.cfg.fitness(ants.food_delivered[i], ants.food_harvested[i], ants.food_homing[i]),
             ants.lineage[i],
             &ants.genome[i],
             ctx.cfg.hall_of_fame_size,

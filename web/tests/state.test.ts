@@ -76,7 +76,7 @@ describe("dispatch", () => {
     expect(store.state.genome?.params.length).toBe(1160);
 
     net.dispatch(load("config.bin"));
-    expect(store.state.config.size).toBe(17);
+    expect(store.state.config.size).toBe(18);
   });
 
   it("ignores an unknown tag rather than throwing", () => {

@@ -40,6 +40,10 @@ pub struct Ants {
     /// A dense fitness stepping stone: see `Config::fitness`. Serialized (unlike
     /// `attacking`) because fitness must survive save/load.
     pub food_harvested: Vec<f32>,
+    /// Lifetime homing progress: distance this ant has carried food back toward
+    /// its own nest. Another dense fitness stepping stone (see `Config::fitness`),
+    /// serialized for the same reason as `food_harvested`.
+    pub food_homing: Vec<f32>,
     pub memory: Vec<[f32; N_MEMORY]>,
     pub genome: Vec<Genome>,
     pub rng: Vec<Pcg32>,
@@ -138,6 +142,7 @@ impl Ants {
         self.lineage.push(s.lineage);
         self.food_delivered.push(0.0);
         self.food_harvested.push(0.0);
+        self.food_homing.push(0.0);
         self.memory.push([0.0; N_MEMORY]);
         self.genome.push(s.genome);
         self.alive.push(true);
@@ -190,6 +195,7 @@ impl Ants {
         retain(&mut self.lineage, &keep);
         retain(&mut self.food_delivered, &keep);
         retain(&mut self.food_harvested, &keep);
+        retain(&mut self.food_homing, &keep);
         retain(&mut self.memory, &keep);
         retain(&mut self.genome, &keep);
         retain(&mut self.rng, &keep);
@@ -268,6 +274,7 @@ mod tests {
         assert_eq!(a.lineage.len(), n);
         assert_eq!(a.food_delivered.len(), n);
         assert_eq!(a.food_harvested.len(), n);
+        assert_eq!(a.food_homing.len(), n);
         assert_eq!(a.memory.len(), n);
         assert_eq!(a.genome.len(), n);
         assert_eq!(a.rng.len(), n);

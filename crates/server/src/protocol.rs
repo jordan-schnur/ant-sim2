@@ -166,7 +166,7 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
 /// first 500k-tick run showed 97.7% of ants are born free from the extinction
 /// floor rather than paid for out of a colony's store, and fingered exactly
 /// these four as the reason. See `docs/superpowers/notes/`.
-pub const CONFIG_FIELDS: [&str; 17] = [
+pub const CONFIG_FIELDS: [&str; 18] = [
     "food_evaporation",
     "alarm_evaporation",
     "scent_evaporation",
@@ -184,6 +184,7 @@ pub const CONFIG_FIELDS: [&str; 17] = [
     "food_regrow",
     "attack_damage",
     "harvest_weight",
+    "homing_weight",
 ];
 
 fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
@@ -205,6 +206,7 @@ fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
         14 => &mut cfg.food_regrow,
         15 => &mut cfg.attack_damage,
         16 => &mut cfg.harvest_weight,
+        17 => &mut cfg.homing_weight,
         _ => return None,
     })
 }

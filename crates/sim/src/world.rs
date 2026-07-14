@@ -514,6 +514,7 @@ impl World {
             eat(&self.ants.carrying[i].to_bits().to_le_bytes());
             eat(&self.ants.food_delivered[i].to_bits().to_le_bytes());
             eat(&self.ants.food_harvested[i].to_bits().to_le_bytes());
+            eat(&self.ants.food_homing[i].to_bits().to_le_bytes());
         }
         for c in &self.colonies {
             eat(&c.store.to_bits().to_le_bytes());

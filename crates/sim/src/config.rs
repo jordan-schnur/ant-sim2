@@ -118,6 +118,13 @@ pub struct Config {
     /// moves. Kept small so any real delivery dominates a lifetime of mere
     /// harvesting. `0.0` recovers the original delivery-only thesis exactly.
     pub harvest_weight: f32,
+    /// Weight on lifetime *homing* progress — distance an ant carried food back
+    /// toward its own nest — in the selection fitness, relative to delivered
+    /// (weight 1.0). This is the gradient the delivery-only signal lacks: an ant
+    /// that grabs food and hauls it homeward, even without completing a drop, is
+    /// closer to a forager than one that never heads home. It is what lets a
+    /// colony bootstrap foraging from random genomes. `0.0` disables it.
+    pub homing_weight: f32,
 
     // --- Mutation ---
     /// Fraction of parameters perturbed per birth.
@@ -140,10 +147,12 @@ impl Config {
         self.width as usize * self.height as usize
     }
 
-    /// Selection fitness: the real objective plus a small harvest nudge.
+    /// Selection fitness: the real objective (food delivered) plus the harvest
+    /// and homing nudges that give evolution a gradient before any full delivery
+    /// happens. `harvest_weight = homing_weight = 0` recovers pure delivery.
     #[inline]
-    pub fn fitness(&self, delivered: f32, harvested: f32) -> f32 {
-        delivered + self.harvest_weight * harvested
+    pub fn fitness(&self, delivered: f32, harvested: f32, homing: f32) -> f32 {
+        delivered + self.harvest_weight * harvested + self.homing_weight * homing
     }
 }
 
@@ -208,6 +217,7 @@ impl Default for Config {
             shrink_rate: 0.004,
 
             harvest_weight: 0.02,
+            homing_weight: 0.05,
 
             mutation_rate: 0.08,
             mutation_sigma: 0.05,
@@ -311,16 +321,17 @@ mod tests {
     }
 
     #[test]
-    fn fitness_is_delivery_plus_weighted_harvest() {
-        let c = Config { harvest_weight: 0.02, ..Config::default() };
-        assert!((c.fitness(10.0, 100.0) - 12.0).abs() < 1e-6);
+    fn fitness_is_delivery_plus_weighted_harvest_and_homing() {
+        let c = Config { harvest_weight: 0.02, homing_weight: 0.05, ..Config::default() };
+        // 10 + 0.02*100 + 0.05*20 = 13.0
+        assert!((c.fitness(10.0, 100.0, 20.0) - 13.0).abs() < 1e-6);
     }
 
     #[test]
-    fn fitness_with_zero_weight_is_pure_delivery() {
-        // The purity toggle: harvest_weight = 0 recovers the original thesis.
-        let c = Config { harvest_weight: 0.0, ..Config::default() };
-        assert_eq!(c.fitness(7.0, 999.0), 7.0);
+    fn fitness_with_zero_weights_is_pure_delivery() {
+        // The purity toggle: both nudges at 0 recovers the original thesis.
+        let c = Config { harvest_weight: 0.0, homing_weight: 0.0, ..Config::default() };
+        assert_eq!(c.fitness(7.0, 999.0, 999.0), 7.0);
     }
 
     #[test]
@@ -328,8 +339,8 @@ mod tests {
         // Anti-reward-hacking bound: any delivered unit must beat a plausible
         // lifetime of harvest-without-delivery at the default weight.
         let c = Config::default();
-        let lifetime_harvest_only = c.fitness(0.0, 400.0); // busy forager, never delivers
-        let one_delivery = c.fitness(10.0, 0.0);
+        let lifetime_harvest_only = c.fitness(0.0, 400.0, 0.0); // busy forager, never delivers
+        let one_delivery = c.fitness(10.0, 0.0, 0.0);
         assert!(one_delivery > lifetime_harvest_only,
             "delivery {one_delivery} must dominate harvest {lifetime_harvest_only}");
     }
