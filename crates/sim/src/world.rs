@@ -515,6 +515,7 @@ impl World {
             eat(&self.ants.food_delivered[i].to_bits().to_le_bytes());
             eat(&self.ants.food_harvested[i].to_bits().to_le_bytes());
             eat(&self.ants.food_homing[i].to_bits().to_le_bytes());
+            eat(&self.ants.recent_productivity[i].to_bits().to_le_bytes());
         }
         for c in &self.colonies {
             eat(&c.store.to_bits().to_le_bytes());
@@ -931,5 +932,16 @@ mod tests {
         let before = w.state_hash();
         w.tick();
         assert_ne!(before, w.state_hash());
+    }
+
+    #[test]
+    fn state_hash_covers_recent_productivity() {
+        // Two worlds identical except one ant's recent_productivity must hash
+        // differently, or selection could silently ignore state a colony
+        // actually depends on.
+        let a = World::new(&small(), 1);
+        let mut b = World::new(&small(), 1);
+        b.ants.recent_productivity[0] += 1.0;
+        assert_ne!(a.state_hash(), b.state_hash());
     }
 }
