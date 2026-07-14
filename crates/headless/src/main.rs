@@ -66,6 +66,8 @@ fn apply_override(cfg: &mut Config, spec: &str) -> Result<(), String> {
         "food_regrow" => cfg.food_regrow = f(value)?,
         "harvest_rate" => cfg.harvest_rate = f(value)?,
         "initial_ants_per_colony" => cfg.initial_ants_per_colony = u(value)?,
+        "productivity_weight" => cfg.productivity_weight = f(value)?,
+        "productivity_decay" => cfg.productivity_decay = f(value)?,
         _ => return Err(format!("unknown config field '{field}'")),
     }
     Ok(())
@@ -172,5 +174,14 @@ mod tests {
         assert_eq!(cfg.trail_emission, 2.5);
         assert_eq!(cfg.trail_evaporation, 0.9);
         assert_eq!(cfg.trail_diffusion, 0.1);
+    }
+
+    #[test]
+    fn productivity_levers_parse() {
+        let mut cfg = Config::default();
+        apply_override(&mut cfg, "productivity_weight=0.2").unwrap();
+        apply_override(&mut cfg, "productivity_decay=0.98").unwrap();
+        assert_eq!(cfg.productivity_weight, 0.2);
+        assert_eq!(cfg.productivity_decay, 0.98);
     }
 }
