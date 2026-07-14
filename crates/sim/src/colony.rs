@@ -27,20 +27,18 @@ pub struct ColonyState {
     /// of old age, so it tracks population as much as skill and can fall while
     /// the colony is getting better.
     pub delivered_total: f32,
-    /// Ants conjured by the extinction floor, free of charge. Surfaced in
-    /// `ColonyStats` because this is the one place the simulation cheats:
-    /// a colony propped up by the floor is not a colony that is winning, and
-    /// the operator must be able to see the difference.
-    pub floor_spawns: u64,
-    pub last_floor_spawn: u64,
+    /// Times this colony collapsed to zero and was refounded from the world
+    /// reservoir. Surfaced in `ColonyStats`: a colony refounding repeatedly is
+    /// thrashing, and the operator must be able to see it. Replaces the retired
+    /// extinction-floor `floor_spawns` counter.
+    pub refounds: u64,
     /// Best genomes ever seen, by food delivered, sorted descending, each with
-    /// the lineage depth of the ant that earned it. Used only by the extinction
-    /// floor. A research-tool affordance, not biology.
+    /// the lineage depth of the ant that earned it. Every colony's archive is
+    /// unioned into the world reservoir that refounds dead nests.
     ///
-    /// The lineage is stored because a floor-spawned ant is a *descendant* of
-    /// its archived parent and must inherit its depth. Without it, a colony that
-    /// lives on the floor — which is most of them — reports the same generation
-    /// number forever.
+    /// The lineage is stored because a refounded ant is a *descendant* of its
+    /// archived parent and must inherit its depth. Without it, a colony that
+    /// refounds repeatedly reports the same generation number forever.
     pub hall_of_fame: Vec<(f32, u32, Genome)>,
     pub next_lineage_hint: u32,
     /// One-shot chronicle flags: latched the first time the milestone happens.
@@ -69,8 +67,7 @@ impl ColonyState {
             births: 0,
             deaths: 0,
             delivered_total: 0.0,
-            floor_spawns: 0,
-            last_floor_spawn: 0,
+            refounds: 0,
             hall_of_fame: Vec::new(),
             next_lineage_hint: 0,
             first_delivery_done: false,
@@ -195,6 +192,47 @@ impl ColonyState {
         let (_, lineage, genome) = self.hall_of_fame.last().unwrap();
         Some((genome, *lineage))
     }
+}
+
+/// Draw one archived genome from the **union of every colony's hall of fame**,
+/// fitness-weighted with the same `PARENT_EPS` roulette `archive_parent` uses.
+/// This is the "best of other generations, across the whole world" reservoir
+/// that refounds a dead nest — the one place genes cross colony lines.
+///
+/// Returns an owned clone because the caller mutates `colonies` (spawning the
+/// founder cohort) right after, so it cannot hold a borrow into the archives.
+/// `None` only when every colony's archive is empty — a true cold start, before
+/// any colony has ever recorded a death — in which case the caller falls back
+/// to `Genome::random`, exactly as genesis founding does.
+///
+/// Determinism: colonies are visited in slice (id) order, then hall-of-fame
+/// order, accumulating the roulette total exactly as `archive_parent` does.
+pub fn world_reservoir_parent(
+    colonies: &[ColonyState],
+    rng: &mut Pcg32,
+) -> Option<(Genome, u32)> {
+    let total: f32 = colonies
+        .iter()
+        .flat_map(|c| c.hall_of_fame.iter())
+        .map(|(f, _, _)| f + PARENT_EPS)
+        .sum();
+    if total <= 0.0 {
+        return None;
+    }
+    let mut target = rng.next_f32() * total;
+    let mut last: Option<(&Genome, u32)> = None;
+    for c in colonies {
+        for (fitness, lineage, genome) in &c.hall_of_fame {
+            last = Some((genome, *lineage));
+            target -= fitness + PARENT_EPS;
+            if target <= 0.0 {
+                return Some((genome.clone(), *lineage));
+            }
+        }
+    }
+    // Float rounding can leave `target` a hair above zero; fall back to the
+    // last archived genome rather than returning None on a non-empty union.
+    last.map(|(g, l)| (g.clone(), l))
 }
 
 #[cfg(test)]
@@ -443,6 +481,43 @@ mod tests {
             seen.len() > 1,
             "a flat archive must still be sampled broadly"
         );
+    }
+
+    #[test]
+    fn world_reservoir_is_none_when_every_archive_is_empty() {
+        // True cold start: no colony has recorded a death, so the reservoir has
+        // nothing to hand back and the caller must fall back to a random genome.
+        let colonies = vec![ColonyState::new(0), ColonyState::new(1)];
+        assert!(world_reservoir_parent(&colonies, &mut Pcg32::new(7, 7)).is_none());
+    }
+
+    #[test]
+    fn world_reservoir_draws_across_colony_lines() {
+        // The scoped inverse of gene-pool sealing: a genome archived only in
+        // colony 0 can be drawn to refound colony 1. A superstar's genes must
+        // reach a different, dead colony.
+        let mut colonies = vec![ColonyState::new(0), ColonyState::new(1)];
+        colonies[0].record_death(1000.0, 3, &genome(42), 5);
+        let want = colonies[0].hall_of_fame[0].2.params[0];
+        let (drawn, lineage) =
+            world_reservoir_parent(&colonies, &mut Pcg32::new(8, 8)).unwrap();
+        assert_eq!(drawn.params[0], want, "the only archived genome must be drawn");
+        assert_eq!(lineage, 3, "the drawn genome carries its archived depth");
+    }
+
+    #[test]
+    fn world_reservoir_favours_the_fittest_across_the_union() {
+        // Fitness-weighting spans the whole union, not one colony: a 1000-fitness
+        // genome in colony 1 dominates a 0-fitness genome in colony 0.
+        let mut colonies = vec![ColonyState::new(0), ColonyState::new(1)];
+        colonies[0].record_death(0.0, 0, &genome(1), 5);
+        colonies[1].record_death(1000.0, 0, &genome(2), 5);
+        let want = colonies[1].hall_of_fame[0].2.params[0];
+        let mut r = Pcg32::new(9, 9);
+        let wins = (0..1000)
+            .filter(|_| world_reservoir_parent(&colonies, &mut r).unwrap().0.params[0] == want)
+            .count();
+        assert!(wins > 900, "the productive genome won only {wins}/1000");
     }
 
     #[test]

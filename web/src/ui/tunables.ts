@@ -43,6 +43,9 @@ export const TUNABLES: Tunable[] = [
   { id: 15, label: "attack damage", min: 0, max: 20, scale: "linear" },
   { id: 16, label: "harvest weight", min: 0, max: 0.2, scale: "linear", hint: "0 = deliver-only; nudge toward foraging" },
   { id: 17, label: "homing weight", min: 0, max: 1, scale: "linear", hint: "reward carrying food home; helps bootstrap" },
+  { id: 18, label: "trail emission", min: 0, max: 5, scale: "linear", hint: "colony recent-path signal ants lay each tick" },
+  { id: 19, label: "trail evap", min: 0.9, max: 0.9999, scale: "decay", hint: "fast decay = trail means recent" },
+  { id: 20, label: "trail diffuse", min: 0, max: 0.4, scale: "linear" },
 ];
 
 /** Slider position [0,1] -> config value. */

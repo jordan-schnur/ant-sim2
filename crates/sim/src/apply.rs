@@ -200,6 +200,10 @@ pub fn deposit_passive(cell: usize, carrying: f32, colony: u8, ctx: &mut ApplyCt
     }
     ctx.phero
         .deposit_scent(cell, ctx.cfg.ant_scent_emission, colony);
+    // Dedicated fast-fading colony trail: "a colony-mate was here recently",
+    // separate from the persistent nest beacon above. Nests never lay this.
+    ctx.phero
+        .deposit_trail(cell, ctx.cfg.trail_emission, colony);
 }
 
 /// An ant may not shrink below this, however starved.
@@ -716,8 +720,17 @@ mod tests {
         let mut f = fixture(&[(8.5, 8.5, 1)]);
         let c = f.grid.idx(8, 8);
         deposit_passive(c, 0.0, 1, &mut f.ctx());
-        assert_eq!(f.phero.scent[c], f.cfg.ant_scent_emission);
-        assert_eq!(f.phero.owner[c], 1);
+        assert_eq!(f.phero.scent.mag[c], f.cfg.ant_scent_emission);
+        assert_eq!(f.phero.scent.owner[c], 1);
+    }
+
+    #[test]
+    fn every_ant_lays_colony_trail_unconditionally() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        deposit_passive(c, 0.0, 1, &mut f.ctx());
+        assert_eq!(f.phero.trail.mag[c], f.cfg.trail_emission);
+        assert_eq!(f.phero.trail.owner[c], 1);
     }
 
     #[test]

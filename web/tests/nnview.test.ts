@@ -15,8 +15,8 @@ describe("nnview layout", () => {
   it("places 86 nodes in four columns", () => {
     const { nodes, layerStart } = layout(400, 300);
     expect(nodes.length).toBe(N_INPUTS + N_HIDDEN1 + N_HIDDEN2 + N_OUTPUTS);
-    expect(nodes.length).toBe(86);
-    expect(layerStart).toEqual([0, 46, 62, 78]);
+    expect(nodes.length).toBe(91);
+    expect(layerStart).toEqual([0, 51, 67, 83]);
   });
 
   it("gives each layer its own x and orders columns left to right", () => {
@@ -71,7 +71,7 @@ describe("parameter block offsets", () => {
     expect(W2_OFF).toBe(N_INPUTS * N_HIDDEN1 + N_HIDDEN1);
     expect(W3_OFF).toBe(W2_OFF + N_HIDDEN1 * N_HIDDEN2 + N_HIDDEN2);
     expect(B3_OFF + N_OUTPUTS).toBe(N_PARAMS);
-    expect(N_PARAMS).toBe(1160);
+    expect(N_PARAMS).toBe(1240);
   });
 });
 

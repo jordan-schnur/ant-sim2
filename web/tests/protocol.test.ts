@@ -121,7 +121,9 @@ describe("pheromones", () => {
     expect(f.w).toBe(expected.phero.w);
     expect(f.h).toBe(expected.phero.h);
     expect(f.factor).toBe(expected.phero.factor);
+    // The 8-byte cell de-interleaves into two RGBA textures of equal size.
     expect(f.rgba.byteLength).toBe(f.w * f.h * 4);
+    expect(f.trail.byteLength).toBe(f.w * f.h * 4);
   });
 
   it("reads the first texel byte-for-byte", () => {
@@ -209,7 +211,7 @@ describe("stats", () => {
     expect(c.store).toBeCloseTo(e.store, 5);
     expect(c.births).toBe(e.births);
     expect(c.deaths).toBe(e.deaths);
-    expect(c.floorSpawns).toBe(e.floorSpawns);
+    expect(c.refounds).toBe(e.refounds);
     expect(c.meanSize).toBeCloseTo(e.meanSize, 5);
     expect(c.meanLineage).toBeCloseTo(e.meanLineage, 5);
     expect(c.deliveredTotal).toBeCloseTo(e.deliveredTotal, 5);
@@ -221,7 +223,7 @@ describe("stats", () => {
     // A mutation test (shift `store` one byte) must fail; it only does if the
     // fixture carries signal in every field.
     const e = expected.stats.first;
-    for (const k of ["store", "births", "deaths", "floorSpawns", "meanSize", "meanLineage", "deliveredTotal"]) {
+    for (const k of ["store", "births", "deaths", "refounds", "meanSize", "meanLineage", "deliveredTotal"]) {
       expect(e[k], `stats fixture field ${k} is zero and proves nothing`).not.toBe(0);
     }
     for (const k of ["age", "lineage", "trait0"]) {
@@ -288,7 +290,7 @@ describe("ant detail", () => {
   it("carries the full activation vector for every layer", () => {
     const f = decode(load("detail.bin"));
     if (f?.kind !== "detail") throw new Error("not a detail frame");
-    expect(f.inputs.length).toBe(46);
+    expect(f.inputs.length).toBe(51);
     expect(f.h1.length).toBe(16);
     expect(f.h2.length).toBe(16);
     expect(f.outputs.length).toBe(8);

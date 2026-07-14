@@ -20,21 +20,24 @@ describe("input labels mirror the sim's sense.rs layout", () => {
   });
 
   it("names the whisker channels by direction and channel", () => {
+    // 7 channels per whisker now: food, food-trail, alarm, own scent, foe
+    // scent, wall, own trail.
     // Index 0 is whisker 0 (far left), channel 0 (food).
     expect(inputLabel(0)).toBe("whisker far left · food");
-    // Index 14 is whisker 2 (ahead), channel 2 (alarm): 2*6 + 2.
-    expect(inputLabel(14)).toBe("whisker ahead · alarm");
-    // Index 29 is whisker 4 (far right), channel 5 (wall).
-    expect(inputLabel(29)).toBe("whisker far right · wall");
+    // Index 16 is whisker 2 (ahead), channel 2 (alarm): 2*7 + 2.
+    expect(inputLabel(16)).toBe("whisker ahead · alarm");
+    // Index 34 is whisker 4 (far right), channel 6 (own trail): 4*7 + 6.
+    expect(inputLabel(34)).toBe("whisker far right · own trail");
   });
 
   it("names the non-whisker inputs", () => {
-    expect(inputLabel(30)).toBe("underfoot food");
-    expect(inputLabel(35)).toBe("energy");
-    expect(inputLabel(39)).toBe("bias");
-    expect(inputLabel(40)).toBe("memory 0");
-    expect(inputLabel(43)).toBe("memory 3");
-    expect(inputLabel(44)).toBe("facing (sin)");
+    // Whisker block is now 35 wide (5x7).
+    expect(inputLabel(35)).toBe("underfoot food");
+    expect(inputLabel(40)).toBe("energy");
+    expect(inputLabel(44)).toBe("bias");
+    expect(inputLabel(45)).toBe("memory 0");
+    expect(inputLabel(48)).toBe("memory 3");
+    expect(inputLabel(49)).toBe("facing (sin)");
     expect(inputLabel(N_INPUTS - 1)).toBe("facing (cos)");
   });
 });
@@ -48,7 +51,7 @@ describe("output labels", () => {
 
 describe("nodeInfo", () => {
   it("labels inputs, outputs (with a description), and hidden neurons", () => {
-    expect(nodeInfo(0, 30).label).toBe("underfoot food");
+    expect(nodeInfo(0, 35).label).toBe("underfoot food");
     const out = nodeInfo(3, 1);
     expect(out.label).toBe("output · vel y");
     expect(out.desc).toBeTruthy();

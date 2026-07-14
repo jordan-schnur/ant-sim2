@@ -41,9 +41,9 @@ export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
 export const BYTES_PER_COLONY = 46;
-export const ANT_DETAIL_LEN = 433;
+export const ANT_DETAIL_LEN = 453;
 
-export const N_INPUTS = 46;
+export const N_INPUTS = 51;
 export const N_HIDDEN1 = 16;
 export const N_HIDDEN2 = 16;
 export const N_OUTPUTS = 8;
@@ -87,6 +87,9 @@ export const CONFIG_FIELDS = [
   "attack_damage",
   "harvest_weight",
   "homing_weight",
+  "trail_emission",
+  "trail_evaporation",
+  "trail_diffusion",
 ] as const;
 
 export const TRAIT_NAMES = [
@@ -123,8 +126,12 @@ export interface Phero {
   w: number;
   h: number;
   factor: number;
-  /** RGBA8. R food, G alarm, B scent, A owning colony (255 = none). */
+  /** RGBA8, de-interleaved from the scent texel. R food, G alarm, B scent,
+   *  A owning colony (255 = none). */
   rgba: Uint8Array;
+  /** RGBA8, de-interleaved from the trail texel. R trail magnitude, G trail
+   *  owner (255 = none), B/A reserved. */
+  trail: Uint8Array;
 }
 
 /**
@@ -148,7 +155,9 @@ export interface ColonyStat {
   store: number;
   births: number;
   deaths: number;
-  floorSpawns: number;
+  /** Times this colony collapsed to zero and was refounded from the world
+   *  reservoir. High values mean death-thrash, not thriving. */
+  refounds: number;
   meanSize: number;
   /** Mean lineage depth. This is what the project calls a "generation". */
   meanLineage: number;
@@ -274,13 +283,31 @@ export function decode(buf: ArrayBuffer): Frame | null {
     case TAG_PHERO: {
       const w = v.getUint16(9, true);
       const h = v.getUint16(11, true);
+      // Eight bytes per cell: a scent RGBA texel then a trail RGBA texel,
+      // interleaved. De-interleave into two contiguous textures the renderer
+      // can upload directly.
+      const cells = w * h;
+      const packed = new Uint8Array(buf, 14, cells * 8);
+      const rgba = new Uint8Array(cells * 4);
+      const trail = new Uint8Array(cells * 4);
+      for (let i = 0; i < cells; i++) {
+        rgba[i * 4] = packed[i * 8];
+        rgba[i * 4 + 1] = packed[i * 8 + 1];
+        rgba[i * 4 + 2] = packed[i * 8 + 2];
+        rgba[i * 4 + 3] = packed[i * 8 + 3];
+        trail[i * 4] = packed[i * 8 + 4];
+        trail[i * 4 + 1] = packed[i * 8 + 5];
+        trail[i * 4 + 2] = packed[i * 8 + 6];
+        trail[i * 4 + 3] = packed[i * 8 + 7];
+      }
       return {
         kind: "phero",
         tick: u64(v, 1),
         w,
         h,
         factor: v.getUint8(13),
-        rgba: new Uint8Array(buf, 14, w * h * 4),
+        rgba,
+        trail,
       };
     }
 
@@ -309,7 +336,7 @@ export function decode(buf: ArrayBuffer): Frame | null {
           store: v.getFloat32(o + 6, true),
           births: u64(v, o + 10),
           deaths: u64(v, o + 18),
-          floorSpawns: u64(v, o + 26),
+          refounds: u64(v, o + 26),
           meanSize: v.getFloat32(o + 34, true),
           meanLineage: v.getFloat32(o + 38, true),
           deliveredTotal: v.getFloat32(o + 42, true),

@@ -701,7 +701,7 @@ mod tests {
 
         let ph = h.phero.borrow().clone();
         assert_eq!(ph[0], protocol::TAG_PHERO);
-        assert_eq!(ph.len(), 14 + 16 * 16 * 4);
+        assert_eq!(ph.len(), 14 + 16 * 16 * 8);
 
         let st = h.stats.borrow().clone();
         assert_eq!(st[0], protocol::TAG_STATS);

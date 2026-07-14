@@ -30,7 +30,7 @@ pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 46;
-pub const ANT_DETAIL_LEN: usize = 433;
+pub const ANT_DETAIL_LEN: usize = 453;
 
 /// `size` byte divisor. `TRAIT_RANGES` caps `max_size` at 3.0, so this cannot
 /// clip a legal ant.
@@ -166,7 +166,7 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
 /// first 500k-tick run showed 97.7% of ants are born free from the extinction
 /// floor rather than paid for out of a colony's store, and fingered exactly
 /// these four as the reason. See `docs/superpowers/notes/`.
-pub const CONFIG_FIELDS: [&str; 18] = [
+pub const CONFIG_FIELDS: [&str; 21] = [
     "food_evaporation",
     "alarm_evaporation",
     "scent_evaporation",
@@ -185,6 +185,9 @@ pub const CONFIG_FIELDS: [&str; 18] = [
     "attack_damage",
     "harvest_weight",
     "homing_weight",
+    "trail_emission",
+    "trail_evaporation",
+    "trail_diffusion",
 ];
 
 fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
@@ -207,6 +210,9 @@ fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
         15 => &mut cfg.attack_damage,
         16 => &mut cfg.harvest_weight,
         17 => &mut cfg.homing_weight,
+        18 => &mut cfg.trail_emission,
+        19 => &mut cfg.trail_evaporation,
+        20 => &mut cfg.trail_diffusion,
         _ => return None,
     })
 }
@@ -315,11 +321,13 @@ pub fn encode_ants(out: &mut Vec<u8>, w: &World) {
     }
 }
 
-/// RGBA8. R = food trail, G = alarm, B = colony scent, A = owning colony.
+/// Eight bytes per cell, two RGBA8 texels the client splits into two textures:
+///   texel 0: R = food trail, G = alarm, B = colony scent, A = scent owner.
+///   texel 1: R = colony trail, G = trail owner, B/A = 0 (reserved).
 ///
-/// R/G/B run through `squash_phero`, the very function the ants' sensors use,
-/// so on-screen brightness *is* the number the ant reads. That makes the view a
-/// debugging instrument rather than a decoration.
+/// The magnitude bytes run through `squash_phero`, the very function the ants'
+/// sensors use, so on-screen brightness *is* the number the ant reads. That
+/// makes the view a debugging instrument rather than a decoration.
 ///
 /// Downsampling is 2x2 **max**, not mean. A foraging trail is often one cell
 /// wide; averaging it with three empty neighbours quarters its brightness and
@@ -333,7 +341,7 @@ pub fn encode_phero(out: &mut Vec<u8>, w: &World, factor: u8) {
     let sh = w.cfg.height as usize / f;
 
     out.clear();
-    out.reserve(14 + sw * sh * 4);
+    out.reserve(14 + sw * sh * 8);
     put_u8(out, TAG_PHERO);
     put_u64(out, w.tick_count);
     put_u16(out, sw as u16);
@@ -346,16 +354,21 @@ pub fn encode_phero(out: &mut Vec<u8>, w: &World, factor: u8) {
 
     for sy in 0..sh {
         for sx in 0..sw {
-            let (mut food, mut alarm, mut scent) = (0.0f32, 0.0f32, 0.0f32);
+            let (mut food, mut alarm, mut scent, mut trail) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
             let mut owner = sim::pheromone::NO_OWNER;
+            let mut trail_owner = sim::pheromone::NO_OWNER;
             for dy in 0..f {
                 for dx in 0..f {
                     let i = (sy * f + dy) * width + (sx * f + dx);
                     food = food.max(p.food[i]);
                     alarm = alarm.max(p.alarm[i]);
-                    if p.scent[i] > scent {
-                        scent = p.scent[i];
-                        owner = p.owner[i];
+                    if p.scent.mag[i] > scent {
+                        scent = p.scent.mag[i];
+                        owner = p.scent.owner[i];
+                    }
+                    if p.trail.mag[i] > trail {
+                        trail = p.trail.mag[i];
+                        trail_owner = p.trail.owner[i];
                     }
                 }
             }
@@ -363,6 +376,10 @@ pub fn encode_phero(out: &mut Vec<u8>, w: &World, factor: u8) {
             put_u8(out, (squash_phero(alarm, div) * 255.0) as u8);
             put_u8(out, (squash_phero(scent, div) * 255.0) as u8);
             put_u8(out, owner);
+            put_u8(out, (squash_phero(trail, div) * 255.0) as u8);
+            put_u8(out, trail_owner);
+            put_u8(out, 0);
+            put_u8(out, 0);
         }
     }
 }
@@ -437,7 +454,7 @@ pub fn encode_stats(out: &mut Vec<u8>, tick: u64, stats: &[ColonyStats]) {
         put_f32(out, s.store);
         put_u64(out, s.births);
         put_u64(out, s.deaths);
-        put_u64(out, s.floor_spawns);
+        put_u64(out, s.refounds);
         put_f32(out, s.mean_size);
         put_f32(out, s.mean_lineage);
         put_f32(out, s.delivered_total);
@@ -684,17 +701,19 @@ mod tests {
     }
 
     #[test]
-    fn a_pheromone_frame_is_a_header_plus_rgba_per_texel() {
+    fn a_pheromone_frame_is_a_header_plus_two_rgba_texels_per_cell() {
+        // Eight bytes per cell: scent texel (food/alarm/scent/owner) + trail
+        // texel (trail/trail-owner/0/0).
         let w = World::new(&small(), 1);
         let mut b = Vec::new();
         encode_phero(&mut b, &w, 1);
-        assert_eq!(b.len(), 14 + 32 * 32 * 4);
+        assert_eq!(b.len(), 14 + 32 * 32 * 8);
         assert_eq!(b[0], TAG_PHERO);
         assert_eq!(u16::from_le_bytes([b[9], b[10]]), 32);
         assert_eq!(b[13], 1);
 
         encode_phero(&mut b, &w, 2);
-        assert_eq!(b.len(), 14 + 16 * 16 * 4);
+        assert_eq!(b.len(), 14 + 16 * 16 * 8);
         assert_eq!(u16::from_le_bytes([b[9], b[10]]), 16);
         assert_eq!(b[13], 2);
     }
@@ -710,7 +729,7 @@ mod tests {
 
         let mut b = Vec::new();
         encode_phero(&mut b, &w, 2);
-        let texel = 14 + (1 * 16 + 1) * 4;
+        let texel = 14 + (1 * 16 + 1) * 8;
         let full = (squash_phero(500.0, w.cfg.phero_log_div) * 255.0) as u8;
         assert_eq!(b[texel], full, "the max must survive downsampling intact");
         assert!(full > 60, "fixture is too dim to be meaningful");
@@ -719,21 +738,43 @@ mod tests {
     #[test]
     fn the_scent_owner_comes_from_the_sub_cell_that_won_the_max() {
         let mut w = World::new(&small(), 1);
-        w.phero.scent.iter_mut().for_each(|v| *v = 0.0);
+        w.phero.scent.mag.iter_mut().for_each(|v| *v = 0.0);
         w.phero
+            .scent
             .owner
             .iter_mut()
             .for_each(|v| *v = sim::pheromone::NO_OWNER);
         let weak = w.grid.idx(0, 0);
         let strong = w.grid.idx(1, 1);
-        w.phero.scent[weak] = 1.0;
-        w.phero.owner[weak] = 0;
-        w.phero.scent[strong] = 900.0;
-        w.phero.owner[strong] = 1;
+        w.phero.scent.mag[weak] = 1.0;
+        w.phero.scent.owner[weak] = 0;
+        w.phero.scent.mag[strong] = 900.0;
+        w.phero.scent.owner[strong] = 1;
 
         let mut b = Vec::new();
         encode_phero(&mut b, &w, 2);
         assert_eq!(b[14 + 3], 1, "alpha must name the colony that won the max");
+    }
+
+    #[test]
+    fn the_trail_texel_carries_magnitude_and_owner() {
+        let mut w = World::new(&small(), 1);
+        w.phero.trail.mag.iter_mut().for_each(|v| *v = 0.0);
+        w.phero
+            .trail
+            .owner
+            .iter_mut()
+            .for_each(|v| *v = sim::pheromone::NO_OWNER);
+        let cell = w.grid.idx(3, 3); // super-cell (3,3) at factor 1
+        w.phero.trail.mag[cell] = 900.0;
+        w.phero.trail.owner[cell] = 2;
+
+        let mut b = Vec::new();
+        encode_phero(&mut b, &w, 1);
+        // Second texel of cell (3,3): 14 header + cell*8 + 4 (past scent texel).
+        let base = 14 + (3 * 32 + 3) * 8 + 4;
+        assert!(b[base] > 60, "trail magnitude should be visible, got {}", b[base]);
+        assert_eq!(b[base + 1], 2, "the trail owner rides in the second texel");
     }
 
     #[test]
@@ -841,8 +882,8 @@ mod tests {
         assert_eq!(b[10], 1, "alive byte");
         assert_eq!(u32::from_le_bytes(b[45..49].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(b[49..53].try_into().unwrap()), 4);
-        // food_harvested is the last fixed f32, at offset 429 (just past outputs).
-        assert_eq!(f32::from_le_bytes(b[429..433].try_into().unwrap()), 9.0);
+        // food_harvested is the last fixed f32, at offset ANT_DETAIL_LEN - 4.
+        assert_eq!(f32::from_le_bytes(b[449..453].try_into().unwrap()), 9.0);
     }
 
     #[test]
@@ -923,7 +964,7 @@ mod tests {
                 name: "",
             },
         );
-        let out0 = f32::from_le_bytes(b[397..401].try_into().unwrap());
+        let out0 = f32::from_le_bytes(b[417..421].try_into().unwrap());
         let expected = w.ants.genome[0].forward(&act.inputs);
         assert_eq!(out0, expected.outputs[0]);
     }

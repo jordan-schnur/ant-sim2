@@ -47,8 +47,10 @@ fn apply_override(cfg: &mut Config, spec: &str) -> Result<(), String> {
         "initial_food_store" => cfg.initial_food_store = f(value)?,
         "birth_cost" => cfg.birth_cost = f(value)?,
         "max_births_per_tick" => cfg.max_births_per_tick = u(value)?,
-        "extinction_floor" => cfg.extinction_floor = u(value)?,
         "refuel_rate" => cfg.refuel_rate = f(value)?,
+        "trail_emission" => cfg.trail_emission = f(value)?,
+        "trail_evaporation" => cfg.trail_evaporation = f(value)?,
+        "trail_diffusion" => cfg.trail_diffusion = f(value)?,
         "base_upkeep" => cfg.base_upkeep = f(value)?,
         "tax_speed" => cfg.tax_speed = f(value)?,
         "tax_strength" => cfg.tax_strength = f(value)?,
@@ -90,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = std::io::BufWriter::new(stdout.lock());
     writeln!(
         out,
-        "tick,colony,population,store,births,deaths,floor_spawns,mean_size,generation,\
+        "tick,colony,population,store,births,deaths,refounds,mean_size,generation,\
          food_delivered,delivered_total"
     )?;
 
@@ -107,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     s.store,
                     s.births,
                     s.deaths,
-                    s.floor_spawns,
+                    s.refounds,
                     s.mean_size,
                     s.mean_lineage,
                     s.food_delivered,
@@ -157,7 +159,18 @@ mod tests {
     #[test]
     fn a_uint_field_parses() {
         let mut cfg = Config::default();
-        apply_override(&mut cfg, "extinction_floor=3").unwrap();
-        assert_eq!(cfg.extinction_floor, 3);
+        apply_override(&mut cfg, "max_births_per_tick=3").unwrap();
+        assert_eq!(cfg.max_births_per_tick, 3);
+    }
+
+    #[test]
+    fn the_trail_levers_parse() {
+        let mut cfg = Config::default();
+        apply_override(&mut cfg, "trail_emission=2.5").unwrap();
+        apply_override(&mut cfg, "trail_evaporation=0.9").unwrap();
+        apply_override(&mut cfg, "trail_diffusion=0.1").unwrap();
+        assert_eq!(cfg.trail_emission, 2.5);
+        assert_eq!(cfg.trail_evaporation, 0.9);
+        assert_eq!(cfg.trail_diffusion, 0.1);
     }
 }

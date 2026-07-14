@@ -66,7 +66,7 @@ export interface State {
   // the button must light up the instant it is pressed.
   paused: boolean;
   speed: Speed;
-  layers: { food: boolean; alarm: boolean; scent: boolean };
+  layers: { food: boolean; alarm: boolean; scent: boolean; trail: boolean };
   labels: boolean;
   pheroResLog2: number;
 }
@@ -93,7 +93,7 @@ export class Store {
     chronicle: null,
     paused: true,
     speed: 0,
-    layers: { food: true, alarm: false, scent: true },
+    layers: { food: true, alarm: false, scent: true, trail: false },
     labels: true,
     pheroResLog2: 8,
   };
