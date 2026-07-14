@@ -16,6 +16,12 @@ pub struct ColonyStats {
     /// Reported so the simulation never silently flatters a losing colony.
     pub refounds: u64,
     pub mean_size: f32,
+    /// Number of distinct lineage *depths* among this colony's living ants. Not
+    /// genetic diversity — two ants at the same depth from different founding
+    /// cohorts count once — but a useful spread signal: 1 means a single
+    /// same-age cohort (e.g. a colony that just refounded), a wide count means
+    /// many overlapping generations are breeding at once.
+    pub distinct_generations: u32,
     pub mean_lineage: f32,
     /// Lifetime food delivered by the ants alive *right now*. Falls when a
     /// productive ant dies, so it is a poor progress signal on its own.
@@ -31,12 +37,16 @@ pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
         .map(|c| {
             let mut population = 0u32;
             let (mut size_sum, mut lineage_sum, mut delivered) = (0.0f32, 0.0f32, 0.0f32);
+            let mut depths: Vec<u32> = Vec::new();
             for i in 0..ants.len() {
                 if ants.alive[i] && ants.colony[i] == c.id {
                     population += 1;
                     size_sum += ants.size[i];
                     lineage_sum += ants.lineage[i] as f32;
                     delivered += ants.food_delivered[i];
+                    if !depths.contains(&ants.lineage[i]) {
+                        depths.push(ants.lineage[i]);
+                    }
                 }
             }
             let n = population.max(1) as f32;
@@ -48,6 +58,7 @@ pub fn colony_stats(ants: &Ants, colonies: &[ColonyState]) -> Vec<ColonyStats> {
                 deaths: c.deaths,
                 refounds: c.refounds,
                 mean_size: if population == 0 { 0.0 } else { size_sum / n },
+                distinct_generations: depths.len() as u32,
                 mean_lineage: if population == 0 {
                     0.0
                 } else {
@@ -103,6 +114,17 @@ mod tests {
         let ants = ants_with(&[(0, 1.0, 2, 0.0), (0, 1.0, 6, 0.0)]);
         let cols: Vec<ColonyState> = (0..1).map(ColonyState::new).collect();
         assert_eq!(colony_stats(&ants, &cols)[0].mean_lineage, 4.0);
+    }
+
+    #[test]
+    fn distinct_generations_counts_unique_living_depths() {
+        // Depths 2, 6, 2 -> two distinct depths. A repeated depth counts once.
+        let mut ants = ants_with(&[(0, 1.0, 2, 0.0), (0, 1.0, 6, 0.0), (0, 1.0, 2, 0.0)]);
+        let cols: Vec<ColonyState> = (0..1).map(ColonyState::new).collect();
+        assert_eq!(colony_stats(&ants, &cols)[0].distinct_generations, 2);
+        // A dead ant's depth does not count.
+        ants.alive[1] = false;
+        assert_eq!(colony_stats(&ants, &cols)[0].distinct_generations, 1);
     }
 
     #[test]

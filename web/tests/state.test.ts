@@ -44,6 +44,7 @@ const colony = (id: number, over: Partial<ColonyStat> = {}): ColonyStat => ({
   meanSize: 1,
   meanLineage: 1,
   deliveredTotal: 0,
+  distinctGenerations: 1,
   ...over,
 });
 

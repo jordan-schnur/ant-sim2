@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ANT_DETAIL_LEN,
+  BYTES_PER_COLONY,
   CONFIG_FIELDS,
   FLAG_ATTACKING,
   FLAG_CARRYING,
@@ -212,6 +213,7 @@ describe("stats", () => {
     expect(c.births).toBe(e.births);
     expect(c.deaths).toBe(e.deaths);
     expect(c.refounds).toBe(e.refounds);
+    expect(c.distinctGenerations).toBe(e.distinctGenerations);
     expect(c.meanSize).toBeCloseTo(e.meanSize, 5);
     expect(c.meanLineage).toBeCloseTo(e.meanLineage, 5);
     expect(c.deliveredTotal).toBeCloseTo(e.deliveredTotal, 5);
@@ -231,10 +233,10 @@ describe("stats", () => {
     }
   });
 
-  it("is a header plus forty-six bytes per colony", () => {
+  it("is a header plus BYTES_PER_COLONY bytes per colony", () => {
     const f = decode(load("stats.bin"));
     if (f?.kind !== "stats") throw new Error("not a stats frame");
-    expect(load("stats.bin").byteLength).toBe(10 + 46 * f.colonies.length);
+    expect(load("stats.bin").byteLength).toBe(10 + BYTES_PER_COLONY * f.colonies.length);
   });
 });
 

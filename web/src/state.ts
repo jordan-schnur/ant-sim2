@@ -38,6 +38,11 @@ export interface ColonyHistory {
   population: number[];
   store: number[];
   deliveredTotal: number[];
+  /** Mean lineage depth = "generation". */
+  generation: number[];
+  refounds: number[];
+  /** Distinct living lineage depths — spread, not genetic diversity. */
+  distinctGenerations: number[];
 }
 
 export interface State {
@@ -56,7 +61,7 @@ export interface State {
   /** What the Explorer and in-world popover are focused on. */
   selection: Selection;
   /** Which right-rail tab is shown. Selecting anything flips it to explorer. */
-  activeTab: "colonies" | "explorer";
+  activeTab: "colonies" | "explorer" | "stats";
   config: Map<number, number>;
   history: Map<number, ColonyHistory>;
   colonyMeta: ColonyMeta | null;
@@ -147,13 +152,24 @@ export class Store {
     for (const c of colonies) {
       let h = this.state.history.get(c.id);
       if (!h) {
-        h = { tick: [], population: [], store: [], deliveredTotal: [] };
+        h = {
+          tick: [],
+          population: [],
+          store: [],
+          deliveredTotal: [],
+          generation: [],
+          refounds: [],
+          distinctGenerations: [],
+        };
         this.state.history.set(c.id, h);
       }
       push(h.tick, tick);
       push(h.population, c.population);
       push(h.store, c.store);
       push(h.deliveredTotal, c.deliveredTotal);
+      push(h.generation, c.meanLineage);
+      push(h.refounds, c.refounds);
+      push(h.distinctGenerations, c.distinctGenerations);
     }
     this.notify();
   }

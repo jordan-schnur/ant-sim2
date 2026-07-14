@@ -40,7 +40,7 @@ export const CMD_RENAME_COLONY = 0x0e;
 export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
-export const BYTES_PER_COLONY = 46;
+export const BYTES_PER_COLONY = 50;
 export const ANT_DETAIL_LEN = 453;
 
 export const N_INPUTS = 51;
@@ -163,6 +163,9 @@ export interface ColonyStat {
   meanLineage: number;
   /** Monotonic. The only curve that answers "is this evolving". */
   deliveredTotal: number;
+  /** Distinct lineage depths among living ants — a spread signal, not genetic
+   *  diversity. 1 = a single same-age cohort (e.g. just refounded). */
+  distinctGenerations: number;
 }
 
 export interface Stats {
@@ -340,6 +343,7 @@ export function decode(buf: ArrayBuffer): Frame | null {
           meanSize: v.getFloat32(o + 34, true),
           meanLineage: v.getFloat32(o + 38, true),
           deliveredTotal: v.getFloat32(o + 42, true),
+          distinctGenerations: v.getUint32(o + 46, true),
         });
       }
       return { kind: "stats", tick: u64(v, 1), colonies };

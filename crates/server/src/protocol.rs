@@ -29,7 +29,7 @@ pub const TAG_COLONY_META: u8 = 0x09;
 pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
-pub const BYTES_PER_COLONY: usize = 46;
+pub const BYTES_PER_COLONY: usize = 50;
 pub const ANT_DETAIL_LEN: usize = 453;
 
 /// `size` byte divisor. `TRAIT_RANGES` caps `max_size` at 3.0, so this cannot
@@ -228,8 +228,11 @@ pub fn apply_config_field(cfg: &mut Config, id: u8, value: f32) -> bool {
     // An evaporation rate outside (0,1) either freezes the field forever or
     // amplifies it without bound. `Pheromones::step` multiplies by it.
     let clamped = match id {
-        0..=2 => value.clamp(1e-4, 0.999_99),
-        3..=5 => value.clamp(0.0, 0.5),
+        // Evaporation rates (incl. trail, id 19): outside (0,1) either freezes
+        // the field forever or amplifies it without bound.
+        0..=2 | 19 => value.clamp(1e-4, 0.999_99),
+        // Diffusion rates (incl. trail, id 20).
+        3..=5 | 20 => value.clamp(0.0, 0.5),
         13 => value.clamp(0.01, 1.0),
         _ => value.max(0.0),
     };
@@ -458,6 +461,7 @@ pub fn encode_stats(out: &mut Vec<u8>, tick: u64, stats: &[ColonyStats]) {
         put_f32(out, s.mean_size);
         put_f32(out, s.mean_lineage);
         put_f32(out, s.delivered_total);
+        put_u32(out, s.distinct_generations);
     }
 }
 
@@ -841,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stats_frame_is_a_header_plus_forty_six_bytes_per_colony() {
+    fn a_stats_frame_is_a_header_plus_bytes_per_colony() {
         let w = World::new(&small(), 1);
         let s = w.stats();
         let mut b = Vec::new();
