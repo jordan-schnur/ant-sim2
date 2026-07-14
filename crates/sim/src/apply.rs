@@ -74,12 +74,20 @@ pub fn apply_movement(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut Appl
     // obstacle and keep exploring, the way a real ant traces an edge.
     let (nx, ny, slid) = if can_enter(ctx, i, x0 + dx, y0 + dy, cx, cy) {
         (x0 + dx, y0 + dy, false)
+    } else if !ctx
+        .grid
+        .is_stone((x0 + dx).floor() as i32, (y0 + dy).floor() as i32)
+    {
+        // Blocked by another ant, not terrain: wait for the lane to clear.
+        // Sliding around transient traffic scatters ants queued at the nest
+        // mouth or a food cell and collapses throughput under congestion.
+        return;
     } else if dx != 0.0 && can_enter(ctx, i, x0 + dx, y0, cx, cy) {
         (x0 + dx, y0, true)
     } else if dy != 0.0 && can_enter(ctx, i, x0, y0 + dy, cx, cy) {
         (x0, y0 + dy, true)
     } else {
-        return; // boxed in on both axes: nothing to do this tick
+        return; // boxed in against terrain on both axes: nothing to do
     };
 
     // When it slides, face where it actually moved, not where it wished to, so
