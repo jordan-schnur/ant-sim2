@@ -21,6 +21,7 @@ import { mountControls } from "./ui/controls.js";
 import { openContextMenu, type MenuItem } from "./ui/contextmenu.js";
 import { mountRail } from "./ui/rail.js";
 import { mountExplorer } from "./ui/explorer.js";
+import { mountStats } from "./ui/stats.js";
 import { AntPopover } from "./ui/antpopover.js";
 import { LabelOverlay } from "./ui/labels.js";
 import { ColonyPanel } from "./ui/colonypanel.js";
@@ -45,10 +46,12 @@ const rightRail = document.getElementById("right-rail") as HTMLElement;
 
 mountControls(leftRail, store, net);
 
-const { coloniesPane, explorerPane } = mountRail(rightRail, store);
+const { coloniesPane, explorerPane, statsPane } = mountRail(rightRail, store);
 // Colonies tab: the cards (with camera-focus on click) then the chronicle.
 mountColonies(coloniesPane, store, focusColony);
 mountChronicle(coloniesPane, store);
+// Stats tab: every colony's metrics over time.
+mountStats(statsPane, store);
 // Explorer tab: the context-sensitive inspector.
 mountExplorer(explorerPane, store);
 
