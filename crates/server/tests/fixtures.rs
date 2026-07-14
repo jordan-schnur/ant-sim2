@@ -70,7 +70,7 @@ fn fixture_world() -> World {
     w.colonies[0].store = 123.5;
     w.colonies[0].births = 11;
     w.colonies[0].deaths = 7;
-    w.colonies[0].floor_spawns = 3;
+    w.colonies[0].refounds = 3;
     w.colonies[0].delivered_total = 45.25;
 
     // The ant moved, so its sensed neighbour counts must be recomputed against
@@ -86,9 +86,10 @@ fn brightest_scent_texel(w: &World) -> (usize, u8, u8) {
     let mut b = Vec::new();
     encode_phero(&mut b, w, 2);
     let texels = &b[14..];
-    let n = texels.len() / 4;
-    let best = (0..n).max_by_key(|i| texels[4 * i + 2]).unwrap();
-    (best, texels[4 * best + 2], texels[4 * best + 3])
+    // Eight bytes per cell; the scent texel is the first four.
+    let n = texels.len() / 8;
+    let best = (0..n).max_by_key(|i| texels[8 * i + 2]).unwrap();
+    (best, texels[8 * best + 2], texels[8 * best + 3])
 }
 
 #[test]
@@ -106,7 +107,7 @@ fn emit_protocol_fixtures() {
 
     encode_phero(&mut b, &w, 2);
     write("phero.bin", &b);
-    assert_eq!(b.len(), 14 + 16 * 16 * 4);
+    assert_eq!(b.len(), 14 + 16 * 16 * 8);
 
     encode_terrain(&mut b, &w, 2);
     write("terrain.bin", &b);
@@ -182,7 +183,7 @@ fn emit_protocol_fixtures() {
             "  \"ants\": {{ \"tick\": {}, \"count\": {}, \"first\": {{ \"x\": {}, \"y\": {}, \"colony\": {}, \"size\": {}, \"flags\": {} }} }},\n",
             "  \"phero\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"firstTexel\": [{}, {}, {}, {}], \"brightestScent\": {{ \"texel\": {}, \"value\": {}, \"owner\": {} }} }},\n",
             "  \"terrain\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"stoneTexels\": {}, \"foodTexels\": {}, \"nestTexels\": {}, \"maxFood\": {}, \"maxStone\": {} }},\n",
-            "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"floorSpawns\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
+            "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"refounds\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
             "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"foodHarvested\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
             "  \"genome\": {{ \"id\": 42, \"nParams\": {}, \"param0\": {} }},\n",
             "  \"config\": {{ \"count\": {}, \"field0\": {} }},\n",
@@ -219,7 +220,7 @@ fn emit_protocol_fixtures() {
         stats[0].store,
         stats[0].births,
         stats[0].deaths,
-        stats[0].floor_spawns,
+        stats[0].refounds,
         stats[0].mean_size,
         stats[0].mean_lineage,
         stats[0].delivered_total,
@@ -285,7 +286,7 @@ fn emit_protocol_fixtures() {
     for (name, v) in [
         ("births", s.births),
         ("deaths", s.deaths),
-        ("floor_spawns", s.floor_spawns),
+        ("refounds", s.refounds),
     ] {
         assert!(v != 0, "stats fixture field `{name}` is zero");
     }
