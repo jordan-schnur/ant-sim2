@@ -166,7 +166,7 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
 /// first 500k-tick run showed 97.7% of ants are born free from the extinction
 /// floor rather than paid for out of a colony's store, and fingered exactly
 /// these four as the reason. See `docs/superpowers/notes/`.
-pub const CONFIG_FIELDS: [&str; 21] = [
+pub const CONFIG_FIELDS: [&str; 23] = [
     "food_evaporation",
     "alarm_evaporation",
     "scent_evaporation",
@@ -188,6 +188,8 @@ pub const CONFIG_FIELDS: [&str; 21] = [
     "trail_emission",
     "trail_evaporation",
     "trail_diffusion",
+    "productivity_weight",
+    "productivity_decay",
 ];
 
 fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
@@ -213,6 +215,8 @@ fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
         18 => &mut cfg.trail_emission,
         19 => &mut cfg.trail_evaporation,
         20 => &mut cfg.trail_diffusion,
+        21 => &mut cfg.productivity_weight,
+        22 => &mut cfg.productivity_decay,
         _ => return None,
     })
 }
@@ -230,7 +234,7 @@ pub fn apply_config_field(cfg: &mut Config, id: u8, value: f32) -> bool {
     let clamped = match id {
         // Evaporation rates (incl. trail, id 19): outside (0,1) either freezes
         // the field forever or amplifies it without bound.
-        0..=2 | 19 => value.clamp(1e-4, 0.999_99),
+        0..=2 | 19 | 22 => value.clamp(1e-4, 0.999_99),
         // Diffusion rates (incl. trail, id 20).
         3..=5 | 20 => value.clamp(0.0, 0.5),
         13 => value.clamp(0.01, 1.0),
@@ -992,6 +996,18 @@ mod tests {
         // Clamped to >= 0 like the other non-evaporation fields.
         apply_config_field(&mut cfg, 16, -1.0);
         assert_eq!(cfg.harvest_weight, 0.0);
+    }
+
+    #[test]
+    fn productivity_fields_round_trip() {
+        let mut cfg = Config::default();
+        assert!(apply_config_field(&mut cfg, 21, 0.3));
+        assert!(apply_config_field(&mut cfg, 22, 0.95));
+        assert_eq!(cfg.productivity_weight, 0.3);
+        assert_eq!(cfg.productivity_decay, 0.95);
+        // decay clamps into (0,1)
+        apply_config_field(&mut cfg, 22, 5.0);
+        assert!(cfg.productivity_decay < 1.0);
     }
 
     #[test]
