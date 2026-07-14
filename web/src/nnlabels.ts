@@ -36,6 +36,7 @@ export const INPUT_GROUPS: InputGroup[] = [
   { name: "body", start: 35, len: 4 },
   { name: "bias", start: 39, len: 1 },
   { name: "memory", start: 40, len: 4 },
+  { name: "facing", start: 44, len: 2 }, // sin, cos of the ant's own heading
 ];
 
 // Non-whisker input names, index-aligned to their group starts.
@@ -54,12 +55,13 @@ export function inputLabel(i: number): string {
   if (i < 35) return CROWD[i - 33];
   if (i < 39) return BODY[i - 35];
   if (i === 39) return "bias";
-  return `memory ${i - 40}`;
+  if (i < 44) return `memory ${i - 40}`;
+  return i === 44 ? "facing (sin)" : "facing (cos)";
 }
 
 export const OUTPUT_LABELS = [
-  "turn",
-  "throttle",
+  "vel x",
+  "vel y",
   "attack",
   "grab",
   "mem 0",
@@ -70,8 +72,8 @@ export const OUTPUT_LABELS = [
 
 /** What each output does, for the tooltip and hover popover. */
 export const OUTPUT_DESC = [
-  "steer: sign turns left/right, scaled by max turn rate",
-  "forward speed (negative is ignored — ants cannot reverse)",
+  "x of the desired world-frame velocity; with vel y it sets the direction the ant steers toward and how fast it moves",
+  "y of the desired world-frame velocity; with vel x it sets the direction the ant steers toward and how fast it moves",
   "bite the foe ahead when this clears the attack threshold",
   "positive grabs food; strongly negative drops it or deposits at the nest",
   "recurrent memory — written back as an input on the next tick",

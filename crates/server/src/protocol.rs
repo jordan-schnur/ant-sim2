@@ -30,7 +30,7 @@ pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 46;
-pub const ANT_DETAIL_LEN: usize = 425;
+pub const ANT_DETAIL_LEN: usize = 433;
 
 /// `size` byte divisor. `TRAIT_RANGES` caps `max_size` at 3.0, so this cannot
 /// clip a legal ant.
@@ -839,8 +839,8 @@ mod tests {
         assert_eq!(b[10], 1, "alive byte");
         assert_eq!(u32::from_le_bytes(b[45..49].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(b[49..53].try_into().unwrap()), 4);
-        // food_harvested is the last fixed f32, at offset 421 (just past outputs).
-        assert_eq!(f32::from_le_bytes(b[421..425].try_into().unwrap()), 9.0);
+        // food_harvested is the last fixed f32, at offset 429 (just past outputs).
+        assert_eq!(f32::from_le_bytes(b[429..433].try_into().unwrap()), 9.0);
     }
 
     #[test]
@@ -921,7 +921,7 @@ mod tests {
                 name: "",
             },
         );
-        let out0 = f32::from_le_bytes(b[389..393].try_into().unwrap());
+        let out0 = f32::from_le_bytes(b[397..401].try_into().unwrap());
         let expected = w.ants.genome[0].forward(&act.inputs);
         assert_eq!(out0, expected.outputs[0]);
     }

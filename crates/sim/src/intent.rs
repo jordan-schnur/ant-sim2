@@ -1,5 +1,6 @@
 use crate::ants::Ants;
-use crate::brain::{Brain, OUT_ATTACK, OUT_GRAB, OUT_MEMORY, OUT_THROTTLE, OUT_TURN};
+use crate::apply::wrap_angle;
+use crate::brain::{Brain, OUT_ATTACK, OUT_GRAB, OUT_MEMORY, OUT_VX, OUT_VY};
 use crate::config::Config;
 use crate::grid::Grid;
 use crate::pheromone::Pheromones;
@@ -7,9 +8,13 @@ use crate::sense::sense;
 use crate::spatial::Spatial;
 use crate::N_MEMORY;
 
-/// Maximum heading change per tick, radians. Caps how sharply an ant can turn
-/// regardless of what its network asks for.
+/// Maximum heading change per tick, radians. The network commands a world-frame
+/// direction, not a turn rate; this caps how fast the ant can rotate toward it,
+/// so a reversed command becomes a gradual U-turn rather than an instant snap.
 pub const MAX_TURN: f32 = 0.4;
+/// Below this velocity magnitude the command is treated as "hold position":
+/// steering off `atan2(0, 0)` would otherwise snap every idle ant to world-east.
+const MIN_SPEED_CMD: f32 = 1e-4;
 pub const ATTACK_THRESHOLD: f32 = 0.5;
 pub const GRAB_THRESHOLD: f32 = 0.3;
 
@@ -40,9 +45,20 @@ pub fn think(
     let act = ants.genome[i].forward(&inputs);
     let o = act.outputs;
 
-    let heading = ants.heading[i] + o[OUT_TURN] * MAX_TURN;
-    // Backwards is not modelled; a negative throttle simply means "stop".
-    let speed = o[OUT_THROTTLE].max(0.0) * ants.genome[i].traits.max_speed;
+    // Outputs 0,1 are a world-frame desired-velocity vector. Steer the heading
+    // toward its direction (capped) and move at its magnitude. A steady vector
+    // holds a steady heading, so straight travel is the network's default rather
+    // than the knife-edge that a turn-rate output made it.
+    let (vx, vy) = (o[OUT_VX], o[OUT_VY]);
+    let mag = (vx * vx + vy * vy).sqrt();
+    let heading = if mag > MIN_SPEED_CMD {
+        let desired = vy.atan2(vx);
+        let delta = wrap_angle(desired - ants.heading[i]).clamp(-MAX_TURN, MAX_TURN);
+        ants.heading[i] + delta
+    } else {
+        ants.heading[i]
+    };
+    let speed = mag.min(1.0) * ants.genome[i].traits.max_speed;
 
     let mut memory = [0.0f32; N_MEMORY];
     memory.copy_from_slice(&o[OUT_MEMORY..OUT_MEMORY + N_MEMORY]);
@@ -116,21 +132,16 @@ mod tests {
     }
 
     #[test]
-    fn speed_is_never_negative_and_is_capped_by_the_trait() {
+    fn speed_is_the_velocity_magnitude_capped_by_the_trait() {
         let (c, mut a, g, p, s) = world();
-        force_outputs(
-            &mut a.genome[0],
-            [0.0, -1.0 + 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        );
-        assert_eq!(
-            think(0, &a, &g, &p, &s, &c).speed,
-            0.0,
-            "reverse is not a thing"
-        );
+        // Zero velocity vector -> hold position.
+        force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(think(0, &a, &g, &p, &s, &c).speed, 0.0, "idle should not move");
 
+        // Full-magnitude command -> speed capped at the trait.
         force_outputs(
             &mut a.genome[0],
-            [0.0, 1.0 - 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [1.0 - 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         );
         let sp = think(0, &a, &g, &p, &s, &c).speed;
         assert!(
@@ -141,14 +152,43 @@ mod tests {
     }
 
     #[test]
-    fn turn_is_capped_at_max_turn_per_tick() {
+    fn turn_toward_the_command_is_capped_at_max_turn_per_tick() {
         let (c, mut a, g, p, s) = world();
+        a.heading[0] = 0.0; // facing +x
+        // Command the exact opposite direction (-x). The ant must not snap
+        // around; it turns at most MAX_TURN this tick.
         force_outputs(
             &mut a.genome[0],
-            [1.0 - 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [-1.0 + 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         );
         let delta = think(0, &a, &g, &p, &s, &c).heading - a.heading[0];
         assert!(delta.abs() <= MAX_TURN + 1e-4, "turned {delta} in one tick");
+        assert!(delta.abs() > 0.0, "should have started turning");
+    }
+
+    #[test]
+    fn an_aligned_ant_stops_turning_instead_of_spinning() {
+        let (c, mut a, g, p, s) = world();
+        a.heading[0] = std::f32::consts::FRAC_PI_2; // facing +y
+        // Command +y — the direction it already faces. A steady command on an
+        // aligned heading must produce no further turn: this is the property
+        // that makes straight travel stable rather than a knife-edge.
+        force_outputs(
+            &mut a.genome[0],
+            [0.0, 1.0 - 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        );
+        let delta = think(0, &a, &g, &p, &s, &c).heading - a.heading[0];
+        assert!(delta.abs() < 1e-3, "aligned ant kept turning by {delta}");
+    }
+
+    #[test]
+    fn an_idle_command_holds_the_heading_rather_than_snapping_east() {
+        let (c, mut a, g, p, s) = world();
+        a.heading[0] = 1.0;
+        force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        let out = think(0, &a, &g, &p, &s, &c);
+        assert_eq!(out.heading, 1.0, "a zero command must not rotate the ant");
+        assert_eq!(out.speed, 0.0);
     }
 
     #[test]

@@ -33,7 +33,9 @@ describe("input labels mirror the sim's sense.rs layout", () => {
     expect(inputLabel(35)).toBe("energy");
     expect(inputLabel(39)).toBe("bias");
     expect(inputLabel(40)).toBe("memory 0");
-    expect(inputLabel(N_INPUTS - 1)).toBe("memory 3");
+    expect(inputLabel(43)).toBe("memory 3");
+    expect(inputLabel(44)).toBe("facing (sin)");
+    expect(inputLabel(N_INPUTS - 1)).toBe("facing (cos)");
   });
 });
 
@@ -48,7 +50,7 @@ describe("nodeInfo", () => {
   it("labels inputs, outputs (with a description), and hidden neurons", () => {
     expect(nodeInfo(0, 30).label).toBe("underfoot food");
     const out = nodeInfo(3, 1);
-    expect(out.label).toBe("output · throttle");
+    expect(out.label).toBe("output · vel y");
     expect(out.desc).toBeTruthy();
     expect(nodeInfo(1, 5).label).toBe("hidden 1 · neuron 5");
     expect(nodeInfo(1, 5).desc).toBeUndefined();

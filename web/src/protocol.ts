@@ -41,13 +41,19 @@ export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
 export const BYTES_PER_COLONY = 46;
-export const ANT_DETAIL_LEN = 425;
+export const ANT_DETAIL_LEN = 433;
 
-export const N_INPUTS = 44;
+export const N_INPUTS = 46;
 export const N_HIDDEN1 = 16;
 export const N_HIDDEN2 = 16;
 export const N_OUTPUTS = 8;
-export const N_PARAMS = 1128;
+export const N_PARAMS =
+  N_INPUTS * N_HIDDEN1 +
+  N_HIDDEN1 +
+  N_HIDDEN1 * N_HIDDEN2 +
+  N_HIDDEN2 +
+  N_HIDDEN2 * N_OUTPUTS +
+  N_OUTPUTS;
 
 export const FLAG_CARRYING = 1 << 0;
 export const FLAG_ATTACKING = 1 << 1;
@@ -340,9 +346,9 @@ export function decode(buf: ArrayBuffer): Frame | null {
         lineage: v.getUint32(49, true),
         traits: floats(53, 8),
         inputs: floats(85, N_INPUTS),
-        h1: floats(261, N_HIDDEN1),
-        h2: floats(325, N_HIDDEN2),
-        outputs: floats(389, N_OUTPUTS),
+        h1: floats(85 + N_INPUTS * 4, N_HIDDEN1),
+        h2: floats(85 + (N_INPUTS + N_HIDDEN1) * 4, N_HIDDEN2),
+        outputs: floats(85 + (N_INPUTS + N_HIDDEN1 + N_HIDDEN2) * 4, N_OUTPUTS),
         name,
       };
     }

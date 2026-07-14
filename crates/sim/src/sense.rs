@@ -12,6 +12,7 @@ pub const IN_COUNTS: usize = 33; // friends, foes
 pub const IN_PROPRIO: usize = 35; // energy, size, carrying, age
 pub const IN_BIAS: usize = 39;
 pub const IN_MEMORY: usize = 40; // N_MEMORY recurrent values
+pub const IN_HEADING: usize = 44; // sin, cos of the ant's own heading
 
 /// Radians relative to the ant's heading. Antennae, not eyes.
 pub const WHISKER_ANGLES: [f32; 5] = [-1.2, -0.6, 0.0, 0.6, 1.2];
@@ -105,6 +106,13 @@ pub fn sense(
 
     inputs[IN_MEMORY..IN_MEMORY + N_MEMORY].copy_from_slice(&ants.memory[i]);
 
+    // The ant's own facing. Outputs are a world-frame velocity command, so the
+    // network needs its heading to map ego-relative whisker readings onto a
+    // world direction. sin/cos keeps the signal continuous across the +/-PI
+    // wrap that a raw angle would jump at.
+    inputs[IN_HEADING] = heading.sin();
+    inputs[IN_HEADING + 1] = heading.cos();
+
     inputs
 }
 
@@ -160,7 +168,8 @@ mod tests {
     #[test]
     fn layout_constants_sum_to_the_input_count() {
         assert_eq!(IN_UNDERFOOT, WHISKER_ANGLES.len() * CHANNELS_PER_WHISKER);
-        assert_eq!(IN_MEMORY + crate::N_MEMORY, N_INPUTS);
+        assert_eq!(IN_MEMORY + crate::N_MEMORY, IN_HEADING);
+        assert_eq!(IN_HEADING + 2, N_INPUTS); // sin, cos close out the vector
     }
 
     #[test]
@@ -183,7 +192,16 @@ mod tests {
         let (c, mut a, g, p, s) = setup();
         a.memory[0] = [0.1, -0.2, 0.3, -0.4];
         let inputs = sense(0, &a, &g, &p, &s, &c);
-        assert_eq!(&inputs[IN_MEMORY..], &[0.1, -0.2, 0.3, -0.4]);
+        assert_eq!(&inputs[IN_MEMORY..IN_MEMORY + N_MEMORY], &[0.1, -0.2, 0.3, -0.4]);
+    }
+
+    #[test]
+    fn the_heading_inputs_are_the_sin_and_cos_of_the_ants_facing() {
+        let (c, mut a, g, p, s) = setup();
+        a.heading[0] = 0.0; // facing +x
+        let inputs = sense(0, &a, &g, &p, &s, &c);
+        assert!((inputs[IN_HEADING] - 0.0).abs() < 1e-6, "sin(0) should be 0");
+        assert!((inputs[IN_HEADING + 1] - 1.0).abs() < 1e-6, "cos(0) should be 1");
     }
 
     #[test]

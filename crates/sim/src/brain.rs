@@ -1,8 +1,10 @@
 use crate::genome::Genome;
 use crate::{N_HIDDEN1, N_HIDDEN2, N_INPUTS, N_OUTPUTS};
 
-pub const OUT_TURN: usize = 0;
-pub const OUT_THROTTLE: usize = 1;
+/// Outputs 0 and 1 are a world-frame desired-velocity vector: the ant steers
+/// its heading toward `atan2(vy, vx)` and moves at `min(1, |v|) * max_speed`.
+pub const OUT_VX: usize = 0;
+pub const OUT_VY: usize = 1;
 pub const OUT_ATTACK: usize = 2;
 pub const OUT_GRAB: usize = 3;
 /// Outputs `[OUT_MEMORY .. N_OUTPUTS)` are recurrent state, fed back as the

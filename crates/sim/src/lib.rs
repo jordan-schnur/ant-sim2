@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
 
 /// Number of sensory inputs fed to every ant's network.
-pub const N_INPUTS: usize = 44;
+pub const N_INPUTS: usize = 46;
 /// First hidden layer width.
 pub const N_HIDDEN1: usize = 16;
 /// Second hidden layer width.
 pub const N_HIDDEN2: usize = 16;
-/// Network outputs: turn, throttle, attack, grab, + 4 recurrent memory values.
+/// Network outputs: velocity x, velocity y, attack, grab, + 4 recurrent memory
+/// values. The velocity is a world-frame heading command, not a turn rate.
 pub const N_OUTPUTS: usize = 8;
 /// Recurrent memory values carried between ticks.
 pub const N_MEMORY: usize = 4;
@@ -45,6 +46,6 @@ mod tests {
 
     #[test]
     fn param_count_matches_spec() {
-        assert_eq!(N_PARAMS, 1128);
+        assert_eq!(N_PARAMS, 1160);
     }
 }

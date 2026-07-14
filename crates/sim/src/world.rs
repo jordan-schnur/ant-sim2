@@ -789,12 +789,20 @@ mod tests {
         // Co-located ants are the common case at spawn, so the tie-break must
         // be defined rather than incidental. Lowest id wins, as in apply.
         let w = World::new(&small(), 1);
-        let (x, y) = (w.ants.x[0], w.ants.y[0]);
-        let tied: Vec<u64> = (0..w.ants.len())
-            .filter(|&i| w.ants.x[i] == x && w.ants.y[i] == y)
-            .map(|i| w.ants.id[i])
-            .collect();
-        assert!(tied.len() > 1, "expected co-located founders");
+        // Find any cell that several founders share, rather than assuming ant 0
+        // is one of them: which founders stack on which nest tile depends on the
+        // RNG stream, so pin the tie-break behaviour, not a specific seed's layout.
+        let (x, y, tied) = (0..w.ants.len())
+            .map(|i| {
+                let (x, y) = (w.ants.x[i], w.ants.y[i]);
+                let ids: Vec<u64> = (0..w.ants.len())
+                    .filter(|&j| w.ants.x[j] == x && w.ants.y[j] == y)
+                    .map(|j| w.ants.id[j])
+                    .collect();
+                (x, y, ids)
+            })
+            .find(|(_, _, ids)| ids.len() > 1)
+            .expect("expected some co-located founders at spawn");
         assert_eq!(w.nearest_ant(x, y), Some(*tied.iter().min().unwrap()));
     }
 

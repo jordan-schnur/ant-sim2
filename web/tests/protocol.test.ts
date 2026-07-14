@@ -288,7 +288,7 @@ describe("ant detail", () => {
   it("carries the full activation vector for every layer", () => {
     const f = decode(load("detail.bin"));
     if (f?.kind !== "detail") throw new Error("not a detail frame");
-    expect(f.inputs.length).toBe(44);
+    expect(f.inputs.length).toBe(46);
     expect(f.h1.length).toBe(16);
     expect(f.h2.length).toBe(16);
     expect(f.outputs.length).toBe(8);
@@ -310,7 +310,7 @@ describe("genome", () => {
     expect(f.params[0]).toBeCloseTo(expected.genome.param0, 6);
   });
 
-  it("is nine bytes of header plus 1128 floats", () => {
+  it("is nine bytes of header plus N_PARAMS floats", () => {
     expect(load("genome.bin").byteLength).toBe(9 + N_PARAMS * 4);
   });
 });
