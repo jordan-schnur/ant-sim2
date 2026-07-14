@@ -524,6 +524,14 @@ impl World {
         for v in &self.phero.food {
             eat(&v.to_bits().to_le_bytes());
         }
+        // The owned fields carry magnitude *and* ownership; a divergence in
+        // either must change the hash. Trail is the newest such field.
+        for f in [&self.phero.scent, &self.phero.trail] {
+            for v in &f.mag {
+                eat(&v.to_bits().to_le_bytes());
+            }
+            eat(&f.owner);
+        }
         for v in &self.grid.food {
             eat(&v.to_bits().to_le_bytes());
         }
@@ -666,9 +674,32 @@ mod tests {
         w.tick();
         for c in &w.colonies {
             let t = c.nest_tiles[0];
-            assert!(w.phero.scent[t] > 0.0);
-            assert_eq!(w.phero.owner[t], c.id);
+            assert!(w.phero.scent.mag[t] > 0.0);
+            assert_eq!(w.phero.scent.owner[t], c.id);
         }
+    }
+
+    #[test]
+    fn nests_never_lay_the_trail_field() {
+        // The trail is un-fused from the beacon: only ants deposit it, never
+        // nests. Kill every ant, then tick: the phase-2 deposit loop runs over
+        // an empty population, the refounded cohort has not acted yet, so the
+        // *only* field writer this tick is the nest beacon. It must touch scent
+        // and leave the trail field completely empty.
+        use crate::pheromone::NO_OWNER;
+        let mut w = World::new(&small(), 1);
+        w.ants.alive.iter_mut().for_each(|a| *a = false);
+        w.ants.retain_alive();
+        assert_eq!(w.ants.len(), 0);
+        w.tick();
+        assert!(
+            w.phero.trail.owner.iter().all(|&o| o == NO_OWNER),
+            "the nest beacon must never write the trail field"
+        );
+        assert!(
+            w.phero.scent.owner.iter().any(|&o| o != NO_OWNER),
+            "the nest beacon should have laid scent"
+        );
     }
 
     #[test]
@@ -696,23 +727,17 @@ mod tests {
     }
 
     #[test]
-    fn no_colony_ever_goes_permanently_extinct() {
-        // The floor is rate-limited, so a colony CAN dip below it — even to
-        // zero — for up to `floor_respawn_interval` ticks. What it may not do
-        // is stay there.
+    fn a_collapsed_colony_is_refounded_the_same_tick() {
+        // The extinction floor is retired. A colony can hit zero, but refounding
+        // reseeds it the same tick it dies — so at the end of *every* tick no
+        // colony is ever observed empty. This is the "world stays alive" property.
         let mut w = World::new(&small(), 7);
-        let mut ticks_at_zero = vec![0u64; w.cfg.num_colonies as usize];
         for _ in 0..5000 {
             w.tick();
             for id in 0..w.cfg.num_colonies {
-                if w.ants.population(id) == 0 {
-                    ticks_at_zero[id as usize] += 1;
-                } else {
-                    ticks_at_zero[id as usize] = 0;
-                }
                 assert!(
-                    ticks_at_zero[id as usize] <= w.cfg.floor_respawn_interval + 1,
-                    "colony {id} stayed extinct past the respawn interval"
+                    w.ants.population(id) > 0,
+                    "colony {id} was left extinct after the tick"
                 );
             }
         }

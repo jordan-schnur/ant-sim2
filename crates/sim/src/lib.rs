@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 /// Number of sensory inputs fed to every ant's network.
-pub const N_INPUTS: usize = 46;
+pub const N_INPUTS: usize = 51;
 /// First hidden layer width.
 pub const N_HIDDEN1: usize = 16;
 /// Second hidden layer width.
@@ -46,6 +46,6 @@ mod tests {
 
     #[test]
     fn param_count_matches_spec() {
-        assert_eq!(N_PARAMS, 1160);
+        assert_eq!(N_PARAMS, 1240);
     }
 }

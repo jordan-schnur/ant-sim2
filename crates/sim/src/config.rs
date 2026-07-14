@@ -54,13 +54,6 @@ pub struct Config {
     /// Food store spent to spawn one ant.
     pub birth_cost: f32,
     pub max_births_per_tick: u32,
-    /// Below this population, the nest spawns free ants from the hall of fame.
-    pub extinction_floor: u32,
-    /// Minimum ticks between two free floor spawns for the same colony. Without
-    /// this the floor tops a colony back up *in the tick its ants die*, which
-    /// hands a besieging colony an infinite conveyor of free corpses to
-    /// scavenge — energy created from nothing at a fixed, findable location.
-    pub floor_respawn_interval: u64,
     pub hall_of_fame_size: usize,
     /// Energy per tick an ant regains while standing on its own nest.
     pub refuel_rate: f32,
@@ -69,10 +62,17 @@ pub struct Config {
     pub food_evaporation: f32,
     pub alarm_evaporation: f32,
     pub scent_evaporation: f32,
+    /// Trail decays much faster than scent — a trail means *recent*, so it fades
+    /// in tens of ticks instead of staining the map like the persistent beacon.
+    pub trail_evaporation: f32,
     /// Fraction of the neighbour-average blended in per tick, per layer.
     pub food_diffusion: f32,
     pub alarm_diffusion: f32,
     pub scent_diffusion: f32,
+    pub trail_diffusion: f32,
+    /// Colony trail deposited by every ant, every tick, on its current cell.
+    /// The "colony-mates were here recently" signal, un-fused from the beacon.
+    pub trail_emission: f32,
     /// Food-trail deposited per unit of carried food, per tick.
     pub food_trail_emission: f32,
     /// Alarm deposited when an ant attacks or is damaged.
@@ -180,17 +180,18 @@ impl Default for Config {
             // with sustained paid births. See the 2026-07-13 economy-tuning note.
             birth_cost: 12.0,
             max_births_per_tick: 2,
-            extinction_floor: 5,
-            floor_respawn_interval: 200,
             hall_of_fame_size: 10,
             refuel_rate: 0.75,
 
             food_evaporation: 0.995,
             alarm_evaporation: 0.97,
             scent_evaporation: 0.999,
+            trail_evaporation: 0.95,
             food_diffusion: 0.12,
             alarm_diffusion: 0.20,
             scent_diffusion: 0.06,
+            trail_diffusion: 0.06,
+            trail_emission: 1.0,
             food_trail_emission: 2.0,
             alarm_emission: 5.0,
             ant_scent_emission: 0.5,
@@ -253,7 +254,12 @@ mod tests {
     #[test]
     fn evaporation_rates_are_decay_multipliers() {
         let c = Config::default();
-        for r in [c.food_evaporation, c.alarm_evaporation, c.scent_evaporation] {
+        for r in [
+            c.food_evaporation,
+            c.alarm_evaporation,
+            c.scent_evaporation,
+            c.trail_evaporation,
+        ] {
             assert!(r > 0.0 && r < 1.0, "evaporation must be in (0,1), got {r}");
         }
     }

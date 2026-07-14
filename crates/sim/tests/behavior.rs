@@ -225,7 +225,7 @@ fn scripted_foragers_keep_delivering_and_do_not_deadlock() {
 }
 
 #[test]
-fn a_colony_with_no_reachable_food_shrinks_to_the_extinction_floor() {
+fn a_colony_with_no_reachable_food_collapses_and_refounds_repeatedly() {
     let c = Config {
         width: 64,
         height: 64,
@@ -243,17 +243,18 @@ fn a_colony_with_no_reachable_food_shrinks_to_the_extinction_floor() {
     for _ in 0..20_000 {
         w.tick();
     }
-    // The floor trickles in one free ant per interval, and each starves. So the
-    // population hovers at or below the floor, never above it, and the colony
-    // is visibly on life support rather than thriving.
+    // With the extinction floor retired, a foodless colony truly dies — and the
+    // same tick refounds a fresh cohort, which then starves too. So it thrashes:
+    // `refounds` climbs, and with no food it never affords a paid birth or grows
+    // past a single founding cohort.
     assert!(
-        w.ants.population(0) <= w.cfg.extinction_floor,
-        "starvation should have pruned the colony to the floor, got {}",
-        w.ants.population(0)
+        w.colonies[0].refounds > 0,
+        "a starving colony should have collapsed and refounded"
     );
     assert!(
-        w.colonies[0].floor_spawns > 0,
-        "the floor should have been propping it up"
+        w.ants.population(0) <= w.cfg.initial_ants_per_colony,
+        "with no food it cannot grow past a fresh cohort, got {}",
+        w.ants.population(0)
     );
     assert!(
         w.colonies[0].births == 0,
