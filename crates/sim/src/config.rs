@@ -125,6 +125,12 @@ pub struct Config {
     /// closer to a forager than one that never heads home. It is what lets a
     /// colony bootstrap foraging from random genomes. `0.0` disables it.
     pub homing_weight: f32,
+    /// Weight on a decaying EMA of recent useful work (harvest + delivery +
+    /// kills). Rewards ants that *keep* producing rather than fluking once and
+    /// coasting. `0.0` disables it, recovering pure cumulative selection.
+    pub productivity_weight: f32,
+    /// Per-tick decay of `Ants::recent_productivity`. ~69-tick half-life at 0.99.
+    pub productivity_decay: f32,
 
     // --- Mutation ---
     /// Fraction of parameters perturbed per birth.
@@ -149,10 +155,15 @@ impl Config {
 
     /// Selection fitness: the real objective (food delivered) plus the harvest
     /// and homing nudges that give evolution a gradient before any full delivery
-    /// happens. `harvest_weight = homing_weight = 0` recovers pure delivery.
+    /// happens, plus a decaying recent-productivity term that rewards ants who
+    /// keep producing. `harvest_weight = homing_weight = productivity_weight = 0`
+    /// recovers pure delivery.
     #[inline]
-    pub fn fitness(&self, delivered: f32, harvested: f32, homing: f32) -> f32 {
-        delivered + self.harvest_weight * harvested + self.homing_weight * homing
+    pub fn fitness(&self, delivered: f32, harvested: f32, homing: f32, recent: f32) -> f32 {
+        delivered
+            + self.harvest_weight * harvested
+            + self.homing_weight * homing
+            + self.productivity_weight * recent
     }
 }
 
@@ -219,6 +230,8 @@ impl Default for Config {
 
             harvest_weight: 0.02,
             homing_weight: 0.05,
+            productivity_weight: 0.1,
+            productivity_decay: 0.99,
 
             mutation_rate: 0.08,
             mutation_sigma: 0.05,
@@ -330,14 +343,14 @@ mod tests {
     fn fitness_is_delivery_plus_weighted_harvest_and_homing() {
         let c = Config { harvest_weight: 0.02, homing_weight: 0.05, ..Config::default() };
         // 10 + 0.02*100 + 0.05*20 = 13.0
-        assert!((c.fitness(10.0, 100.0, 20.0) - 13.0).abs() < 1e-6);
+        assert!((c.fitness(10.0, 100.0, 20.0, 0.0) - 13.0).abs() < 1e-6);
     }
 
     #[test]
     fn fitness_with_zero_weights_is_pure_delivery() {
         // The purity toggle: both nudges at 0 recovers the original thesis.
         let c = Config { harvest_weight: 0.0, homing_weight: 0.0, ..Config::default() };
-        assert_eq!(c.fitness(7.0, 999.0, 999.0), 7.0);
+        assert_eq!(c.fitness(7.0, 999.0, 999.0, 0.0), 7.0);
     }
 
     #[test]
@@ -345,9 +358,29 @@ mod tests {
         // Anti-reward-hacking bound: any delivered unit must beat a plausible
         // lifetime of harvest-without-delivery at the default weight.
         let c = Config::default();
-        let lifetime_harvest_only = c.fitness(0.0, 400.0, 0.0); // busy forager, never delivers
-        let one_delivery = c.fitness(10.0, 0.0, 0.0);
+        let lifetime_harvest_only = c.fitness(0.0, 400.0, 0.0, 0.0); // busy forager, never delivers
+        let one_delivery = c.fitness(10.0, 0.0, 0.0, 0.0);
         assert!(one_delivery > lifetime_harvest_only,
             "delivery {one_delivery} must dominate harvest {lifetime_harvest_only}");
+    }
+
+    #[test]
+    fn fitness_adds_weighted_recent_productivity() {
+        let c = Config { productivity_weight: 0.1, ..Config::default() };
+        // delivered 10 + 0.02*100 + 0.05*20 + 0.1*50 = 10 + 2 + 1 + 5 = 18
+        assert!((c.fitness(10.0, 100.0, 20.0, 50.0) - 18.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn zero_productivity_weight_recovers_prior_fitness() {
+        let c = Config { productivity_weight: 0.0, ..Config::default() };
+        // recent is invisible: matches the old three-arg result.
+        assert_eq!(c.fitness(7.0, 0.0, 0.0, 999.0), 7.0);
+    }
+
+    #[test]
+    fn productivity_decay_is_a_valid_rate() {
+        let d = Config::default().productivity_decay;
+        assert!(d > 0.0 && d < 1.0, "decay must be in (0,1), got {d}");
     }
 }

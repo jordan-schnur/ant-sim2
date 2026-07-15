@@ -46,6 +46,8 @@ export const TUNABLES: Tunable[] = [
   { id: 18, label: "trail emission", min: 0, max: 5, scale: "linear", hint: "colony recent-path signal ants lay each tick" },
   { id: 19, label: "trail evap", min: 0.9, max: 0.9999, scale: "decay", hint: "fast decay = trail means recent" },
   { id: 20, label: "trail diffuse", min: 0, max: 0.4, scale: "linear" },
+  { id: 21, label: "productivity weight", min: 0, max: 1, scale: "linear", hint: "reward recent harvest/deliver/kills; 0 = off (cumulative only)" },
+  { id: 22, label: "productivity decay", min: 0.9, max: 0.9999, scale: "decay", hint: "how fast 'recent' fades; 0.99 = ~69-tick half-life" },
 ];
 
 /** Slider position [0,1] -> config value. */

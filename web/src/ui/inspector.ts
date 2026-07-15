@@ -7,7 +7,13 @@
 import { TRAIT_NAMES } from "../protocol.js";
 import type { Store } from "../state.js";
 import { draw as drawNet, hitTest, activationColor } from "./nnview.js";
-import { fitness, DEFAULT_HARVEST_WEIGHT, HARVEST_WEIGHT_FIELD } from "../fitness.js";
+import {
+  fitness,
+  DEFAULT_HARVEST_WEIGHT,
+  HARVEST_WEIGHT_FIELD,
+  DEFAULT_PRODUCTIVITY_WEIGHT,
+  PRODUCTIVITY_WEIGHT_FIELD,
+} from "../fitness.js";
 import { tipLabel, tipText } from "./tooltips.js";
 import {
   CHANNEL_ABBR,
@@ -47,7 +53,15 @@ export function renderAntDetail(
   }
 
   const weight = store.state.config.get(HARVEST_WEIGHT_FIELD) ?? DEFAULT_HARVEST_WEIGHT;
-  const fit = fitness(d.foodDelivered, d.foodHarvested, weight);
+  const productivityWeight =
+    store.state.config.get(PRODUCTIVITY_WEIGHT_FIELD) ?? DEFAULT_PRODUCTIVITY_WEIGHT;
+  const fit = fitness(
+    d.foodDelivered,
+    d.foodHarvested,
+    weight,
+    d.recentProductivity,
+    productivityWeight,
+  );
 
   // Fitness headline: the one number that answers "how successful is this ant".
   const head = document.createElement("div");
@@ -58,12 +72,14 @@ export function renderAntDetail(
   head.append(fl, fv);
   const brk = document.createElement("div");
   brk.className = "muted fitness-brk";
-  // `weight` arrives as an f32 widened to f64, so a bare `${weight}` prints
-  // 0.019999999552965164. Trim the float noise without hard-coding 2 decimals,
-  // since harvest_weight is tunable to other small values.
+  // Weights arrive as f32 widened to f64, so a bare `${weight}` prints
+  // 0.019999999552965164. Trim the float noise without hard-coding decimals,
+  // since these weights are tunable to other small values.
   const weightText = String(Number(weight.toFixed(4)));
+  const productivityWeightText = String(Number(productivityWeight.toFixed(4)));
   brk.textContent =
-    `= delivered ${d.foodDelivered.toFixed(0)} + ${weightText} × harvested ${d.foodHarvested.toFixed(0)}`;
+    `= delivered ${d.foodDelivered.toFixed(0)} + ${weightText} × harvested ${d.foodHarvested.toFixed(0)}` +
+    ` + ${productivityWeightText} × recent productivity ${d.recentProductivity.toFixed(1)}`;
   body.append(head, brk);
 
   const kv = document.createElement("div");
@@ -84,6 +100,7 @@ export function renderAntDetail(
   row("carrying", "carrying", d.carrying.toFixed(2));
   row("delivered", "delivered", d.foodDelivered.toFixed(1));
   row("harvested", "harvested", d.foodHarvested.toFixed(1));
+  row("recent productivity", "recentProductivity", d.recentProductivity.toFixed(1));
   body.append(kv);
 
   body.append(heading("Traits"));

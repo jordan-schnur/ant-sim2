@@ -77,7 +77,7 @@ describe("dispatch", () => {
     expect(store.state.genome?.params.length).toBe(1240);
 
     net.dispatch(load("config.bin"));
-    expect(store.state.config.size).toBe(21);
+    expect(store.state.config.size).toBe(23);
   });
 
   it("ignores an unknown tag rather than throwing", () => {
@@ -169,6 +169,7 @@ describe("selection", () => {
       carrying: 0,
       foodDelivered: 0,
       foodHarvested: 0,
+      recentProductivity: 0,
       age: 0,
       lineage: 0,
       traits: new Float32Array(8),

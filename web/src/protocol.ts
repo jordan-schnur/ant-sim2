@@ -41,7 +41,7 @@ export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
 export const BYTES_PER_COLONY = 50;
-export const ANT_DETAIL_LEN = 453;
+export const ANT_DETAIL_LEN = 457;
 
 export const N_INPUTS = 51;
 export const N_HIDDEN1 = 16;
@@ -90,6 +90,8 @@ export const CONFIG_FIELDS = [
   "trail_emission",
   "trail_evaporation",
   "trail_diffusion",
+  "productivity_weight",
+  "productivity_decay",
 ] as const;
 
 export const TRAIT_NAMES = [
@@ -188,6 +190,7 @@ export interface AntDetail {
   carrying: number;
   foodDelivered: number;
   foodHarvested: number;
+  recentProductivity: number;
   age: number;
   lineage: number;
   traits: Float32Array;
@@ -373,7 +376,10 @@ export function decode(buf: ArrayBuffer): Frame | null {
         size: f(33),
         carrying: f(37),
         foodDelivered: f(41),
-        foodHarvested: f(ANT_DETAIL_LEN - 4),
+        // foodHarvested's offset was ANT_DETAIL_LEN - 4 before recentProductivity
+        // was appended after it; it's now fixed at 449 regardless of body length.
+        foodHarvested: f(449),
+        recentProductivity: f(ANT_DETAIL_LEN - 4),
         age: v.getUint32(45, true),
         lineage: v.getUint32(49, true),
         traits: floats(53, 8),
