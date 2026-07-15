@@ -32,16 +32,14 @@ export function openNN(store: Store, net: Net): void {
   pauseBtn.className = "nnm-pause";
   pauseBtn.addEventListener("click", () => {
     const next = !store.state.paused;
-    // Optional-chained: the test's fake store exercises only subscribe/state,
-    // and a missing setPaused should never block the network commands.
-    store.setPaused?.(next);
+    store.setPaused(next);
     net.send(cmdSetPaused(next));
   });
   const stepBtn = document.createElement("button");
   stepBtn.className = "nnm-step";
   stepBtn.textContent = "⏭ step";
   stepBtn.addEventListener("click", () => {
-    store.setPaused?.(true);
+    store.setPaused(true);
     net.send(cmdSetPaused(true));
     net.send(cmdStep());
   });
@@ -62,7 +60,7 @@ export function openNN(store: Store, net: Net): void {
   canvasWrap.className = "nnm-canvas-wrap";
   const canvas = document.createElement("canvas");
   canvas.className = "nnm-canvas";
-  attachNNPopover(canvas, store); // node hover popover, now carrying desc
+  const disposePopover = attachNNPopover(canvas, store); // node hover popover, now carrying desc
   canvasWrap.append(canvas);
 
   const side = document.createElement("div");
@@ -178,6 +176,7 @@ export function openNN(store: Store, net: Net): void {
     unsub();
     window.removeEventListener("resize", onResize);
     document.removeEventListener("keydown", onKey);
+    disposePopover();
     backdrop.remove();
     close = null;
   };

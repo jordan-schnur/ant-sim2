@@ -153,13 +153,11 @@ const INPUT_DESC: Record<string, string> = {
   "facing (cos)": "cos of your heading — the other half of the facing signal.",
 };
 
-const CH_COUNT = CHANNELS.length; // 8
-
 /** Meaning + computation for input index `i` (0..N_INPUTS). */
 export function inputInfo(i: number): { label: string; desc: string } {
   const label = inputLabel(i);
-  if (i < CH_COUNT * WHISKER_DIRS.length) {
-    return { label, desc: CHANNEL_DESC[i % CH_COUNT] };
+  if (i < CH * WHISKER_DIRS.length) {
+    return { label, desc: CHANNEL_DESC[i % CH] };
   }
   return { label, desc: INPUT_DESC[label] ?? "" };
 }

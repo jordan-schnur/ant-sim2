@@ -214,7 +214,7 @@ function whiskerGrid(inputs: Float32Array): HTMLElement {
  * can read a single wire off of. Attached once (the canvas is persistent);
  * reads the current ant from the store on each move.
  */
-export function attachNNPopover(canvas: HTMLCanvasElement, store: Store): void {
+export function attachNNPopover(canvas: HTMLCanvasElement, store: Store): () => void {
   const pop = document.createElement("div");
   pop.className = "nn-pop";
   pop.style.display = "none";
@@ -224,7 +224,7 @@ export function attachNNPopover(canvas: HTMLCanvasElement, store: Store): void {
     pop.style.display = "none";
   };
 
-  canvas.addEventListener("mousemove", (e) => {
+  const onMove = (e: MouseEvent) => {
     const d = store.state.detail;
     if (!d || !d.alive) return hide();
     const rect = canvas.getBoundingClientRect();
@@ -259,8 +259,15 @@ export function attachNNPopover(canvas: HTMLCanvasElement, store: Store): void {
     const top = e.clientY + 14 + h > window.innerHeight ? e.clientY - 14 - h : e.clientY + 14;
     pop.style.left = `${Math.max(4, left)}px`;
     pop.style.top = `${Math.max(4, top)}px`;
-  });
+  };
+  canvas.addEventListener("mousemove", onMove);
   canvas.addEventListener("mouseleave", hide);
+
+  return () => {
+    canvas.removeEventListener("mousemove", onMove);
+    canvas.removeEventListener("mouseleave", hide);
+    pop.remove();
+  };
 }
 
 function caption(text: string): HTMLElement {
@@ -277,6 +284,7 @@ function muted(text: string): HTMLElement {
   return p;
 }
 
+/** An `<h2>` section heading; an optional `key` appends an explanation dot. */
 function heading(text: string, key?: string): HTMLElement {
   const h = document.createElement("h2");
   h.textContent = text;

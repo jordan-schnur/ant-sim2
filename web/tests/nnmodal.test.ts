@@ -8,6 +8,7 @@ function fakeStore(detail: unknown) {
   return {
     state: { detail, genome: { params: new Float32Array(1) }, paused: true, tick: 42 },
     subscribe(fn: () => void) { subs.push(fn); return () => {}; },
+    setPaused() {},
     _emit() { for (const f of subs) f(); },
   } as any;
 }
