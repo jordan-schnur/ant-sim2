@@ -166,7 +166,7 @@ pub fn decode_command(b: &[u8]) -> Option<Command> {
 /// first 500k-tick run showed 97.7% of ants are born free from the extinction
 /// floor rather than paid for out of a colony's store, and fingered exactly
 /// these four as the reason. See `docs/superpowers/notes/`.
-pub const CONFIG_FIELDS: [&str; 23] = [
+pub const CONFIG_FIELDS: [&str; 24] = [
     "food_evaporation",
     "alarm_evaporation",
     "scent_evaporation",
@@ -190,6 +190,7 @@ pub const CONFIG_FIELDS: [&str; 23] = [
     "trail_diffusion",
     "productivity_weight",
     "productivity_decay",
+    "food_patch_target",
 ];
 
 fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
@@ -217,6 +218,7 @@ fn field_mut(cfg: &mut Config, id: u8) -> Option<&mut f32> {
         20 => &mut cfg.trail_diffusion,
         21 => &mut cfg.productivity_weight,
         22 => &mut cfg.productivity_decay,
+        23 => &mut cfg.food_patch_target,
         _ => return None,
     })
 }
@@ -238,6 +240,11 @@ pub fn apply_config_field(cfg: &mut Config, id: u8, value: f32) -> bool {
         // Diffusion rates (incl. trail, id 20).
         3..=5 | 20 => value.clamp(0.0, 0.5),
         13 => value.clamp(0.01, 1.0),
+        // Spawn interval: at least 1 tick between passes (0 would divide-by-zero
+        // in the `% interval` check; the sim also treats < 1 as "disabled").
+        14 => value.max(1.0),
+        // Patch target: a non-negative count.
+        23 => value.max(0.0),
         _ => value.max(0.0),
     };
     match field_mut(cfg, id) {
@@ -995,6 +1002,20 @@ mod tests {
         assert_eq!(b.len(), 2 + CONFIG_FIELDS.len() * 5);
         let v = f32::from_le_bytes(b[3..7].try_into().unwrap());
         assert_eq!(v, cfg.food_evaporation);
+    }
+
+    #[test]
+    fn config_field_count_is_24() {
+        assert_eq!(CONFIG_FIELDS.len(), 24);
+    }
+
+    #[test]
+    fn food_levers_round_trip() {
+        let mut cfg = Config::default();
+        apply_config_field(&mut cfg, 23, 60.0);
+        assert_eq!(read_config_field(&cfg, 23), Some(60.0)); // food_patch_target
+        apply_config_field(&mut cfg, 14, 250.0);
+        assert_eq!(read_config_field(&cfg, 14), Some(250.0)); // food_spawn_interval
     }
 
     #[test]
