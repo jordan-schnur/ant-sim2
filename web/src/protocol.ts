@@ -83,7 +83,7 @@ export const CONFIG_FIELDS = [
   "harvest_rate",
   "refuel_rate",
   "growth_threshold",
-  "food_regrow",
+  "food_spawn_interval",
   "attack_damage",
   "harvest_weight",
   "homing_weight",
@@ -92,6 +92,7 @@ export const CONFIG_FIELDS = [
   "trail_diffusion",
   "productivity_weight",
   "productivity_decay",
+  "food_patch_target",
 ] as const;
 
 export const TRAIT_NAMES = [
