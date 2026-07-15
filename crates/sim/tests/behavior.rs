@@ -238,7 +238,6 @@ fn a_colony_with_no_reachable_food_collapses_and_refounds_repeatedly() {
     let mut w = World::new(&c, 13);
     // worldgen still seeds one guaranteed patch per colony; remove all food.
     w.grid.food.iter_mut().for_each(|f| *f = 0.0);
-    w.grid.fertility.iter_mut().for_each(|f| *f = 0.0);
 
     for _ in 0..20_000 {
         w.tick();

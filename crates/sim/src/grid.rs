@@ -10,9 +10,6 @@ pub struct Grid {
     pub height: u16,
     pub stone: Vec<bool>,
     pub food: Vec<f32>,
-    /// Food this cell regrows toward. Zero everywhere except food patches, so a
-    /// harvested patch recovers without the whole map sprouting.
-    pub fertility: Vec<f32>,
     /// Colony id owning this nest tile, or `NO_NEST`.
     pub nest: Vec<u8>,
 }
@@ -25,19 +22,7 @@ impl Grid {
             height: cfg.height,
             stone: vec![false; n],
             food: vec![0.0; n],
-            fertility: vec![0.0; n],
             nest: vec![NO_NEST; n],
-        }
-    }
-
-    /// Regrow toward each cell's fertility. Cells with zero fertility (dirt,
-    /// stone, nests) never grow food, so a harvested patch recovers but the
-    /// rest of the map does not sprout.
-    pub fn regrow(&mut self, rate: f32) {
-        for i in 0..self.food.len() {
-            if self.fertility[i] > 0.0 && self.food[i] < self.fertility[i] {
-                self.food[i] = (self.food[i] + rate).min(self.fertility[i]);
-            }
         }
     }
 
@@ -138,21 +123,15 @@ mod tests {
     }
 
     #[test]
-    fn a_depleted_patch_regrows_toward_its_fertility() {
+    fn harvested_food_does_not_come_back_on_its_own() {
+        // Regrow was removed: a drained cell stays drained until a new patch is
+        // stamped on it. Nothing in Grid refills food.
         let mut g = Grid::new(&small());
         let i = g.idx(2, 2);
-        g.fertility[i] = 10.0;
-        g.food[i] = 0.0;
-        g.regrow(3.0);
-        assert_eq!(g.food[i], 3.0);
-        g.regrow(100.0);
-        assert_eq!(g.food[i], 10.0, "never exceeds fertility");
-    }
-
-    #[test]
-    fn barren_ground_never_sprouts() {
-        let mut g = Grid::new(&small());
-        g.regrow(5.0);
-        assert!(g.food.iter().all(|f| *f == 0.0));
+        g.food[i] = 10.0;
+        g.harvest(i, 10.0);
+        assert_eq!(g.food[i], 0.0);
+        // No regrow method exists to call; the cell simply stays empty.
+        assert_eq!(g.food[i], 0.0);
     }
 }

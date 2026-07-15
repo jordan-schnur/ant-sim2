@@ -311,7 +311,6 @@ impl World {
 
         // --- Phase 3: fields. ---
         self.phero.step(&self.cfg);
-        self.grid.regrow(self.cfg.food_regrow);
 
         self.tick_count += 1;
     }
