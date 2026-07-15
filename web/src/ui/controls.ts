@@ -56,7 +56,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
 
   root.append(section("Layers"));
   const layerBoxes: Record<string, HTMLInputElement> = {};
-  for (const key of ["food", "alarm", "scent"] as const) {
+  for (const key of ["food", "alarm", "scent", "home"] as const) {
     const { label, input } = checkbox(key, store.state.layers[key], () => store.toggleLayer(key));
     layerBoxes[key] = input;
     root.append(label);
@@ -167,7 +167,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     btnStep.textContent = "⏭ step";
     speedBtns.forEach((b, i) => b.classList.toggle("on", st.speed === i && !st.paused));
 
-    for (const key of ["food", "alarm", "scent"] as const) {
+    for (const key of ["food", "alarm", "scent", "home"] as const) {
       layerBoxes[key].checked = st.layers[key];
     }
     labelsBox.input.checked = st.labels;

@@ -41,9 +41,9 @@ export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
 export const BYTES_PER_COLONY = 46;
-export const ANT_DETAIL_LEN = 433;
+export const ANT_DETAIL_LEN = 469;
 
-export const N_INPUTS = 46;
+export const N_INPUTS = 55;
 export const N_HIDDEN1 = 16;
 export const N_HIDDEN2 = 16;
 export const N_OUTPUTS = 8;
@@ -125,6 +125,8 @@ export interface Phero {
   factor: number;
   /** RGBA8. R food, G alarm, B scent, A owning colony (255 = none). */
   rgba: Uint8Array;
+  /** R8. The home / exploration trail, appended after the RGBA block. */
+  home: Uint8Array;
 }
 
 /**
@@ -274,6 +276,7 @@ export function decode(buf: ArrayBuffer): Frame | null {
     case TAG_PHERO: {
       const w = v.getUint16(9, true);
       const h = v.getUint16(11, true);
+      // RGBA block, then a single-channel home-trail plane of the same size.
       return {
         kind: "phero",
         tick: u64(v, 1),
@@ -281,6 +284,7 @@ export function decode(buf: ArrayBuffer): Frame | null {
         h,
         factor: v.getUint8(13),
         rgba: new Uint8Array(buf, 14, w * h * 4),
+        home: new Uint8Array(buf, 14 + w * h * 4, w * h),
       };
     }
 

@@ -46,16 +46,21 @@ out vec4 fragColor;
 
 uniform sampler2D uPhero;
 uniform sampler2D uTerrain;
+uniform sampler2D uHome;
 uniform vec3 uColonyColors[${NUM_COLONY_COLORS}];
 uniform bool uShowFood;
 uniform bool uShowAlarm;
 uniform bool uShowScent;
+uniform bool uShowHome;
 
 const vec3 DIRT       = vec3(0.13, 0.11, 0.09);
 const vec3 STONE      = vec3(0.38, 0.37, 0.36);
 const vec3 FOOD       = vec3(0.45, 0.85, 0.35);
 const vec3 FOOD_TRAIL = vec3(0.95, 0.90, 0.35);
 const vec3 ALARM      = vec3(1.00, 0.20, 0.15);
+// The home / exploration trail. Cyan so it never reads as food-yellow or the
+// blue-ish colony scents when several layers overlap.
+const vec3 HOME_TRAIL = vec3(0.25, 0.80, 0.95);
 
 vec3 colonyColor(float encoded) {
   int id = int(encoded * 255.0 + 0.5);
@@ -103,6 +108,7 @@ void main() {
   if (uShowScent) col += colonyColor(p.a) * p.b * 0.55;
   if (uShowFood)  col += FOOD_TRAIL * p.r * 0.8;
   if (uShowAlarm) col += ALARM * p.g * 0.9;
+  if (uShowHome)  col += HOME_TRAIL * texture(uHome, vUv).r * 0.8;
 
   fragColor = vec4(min(col, vec3(1.0)), 1.0);
 }`;

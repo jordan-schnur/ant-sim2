@@ -10,6 +10,12 @@ pub struct Pheromones {
     pub height: u16,
     pub food: Vec<f32>,
     pub alarm: Vec<f32>,
+    /// The exploration / home trail: laid by *unladen* ants, so it is densest
+    /// near the nest and along outbound routes. Climbing its gradient trends
+    /// homeward. Shared across colonies (no owner) — the colony-correct
+    /// direction comes from the home vector, not this field. See
+    /// `docs/superpowers/specs/2026-07-15-home-vector-and-exploration-trail-design.md`.
+    pub home: Vec<f32>,
     /// Strength of the *owning* colony's mark. Never negative.
     pub scent: Vec<f32>,
     pub owner: Vec<u8>,
@@ -23,6 +29,7 @@ impl Pheromones {
             height: cfg.height,
             food: vec![0.0; n],
             alarm: vec![0.0; n],
+            home: vec![0.0; n],
             scent: vec![0.0; n],
             owner: vec![NO_OWNER; n],
         }
@@ -31,6 +38,11 @@ impl Pheromones {
     #[inline]
     pub fn deposit_food(&mut self, i: usize, amount: f32) {
         self.food[i] += amount;
+    }
+
+    #[inline]
+    pub fn deposit_home(&mut self, i: usize, amount: f32) {
+        self.home[i] += amount;
     }
 
     #[inline]
@@ -86,6 +98,13 @@ impl Pheromones {
             self.height,
             cfg.alarm_diffusion,
             cfg.alarm_evaporation,
+        );
+        diffuse_decay(
+            &mut self.home,
+            self.width,
+            self.height,
+            cfg.home_diffusion,
+            cfg.home_evaporation,
         );
         diffuse_scent(
             &mut self.scent,

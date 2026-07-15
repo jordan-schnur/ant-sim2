@@ -29,7 +29,7 @@ cargo run -p server --release -- --web web/dist
 # open http://127.0.0.1:8080
 ```
 
-Pause, single-step, 1x/10x/100x, pan and zoom, toggle the food/alarm/scent
+Pause, single-step, 1x/10x/100x, pan and zoom, toggle the food/alarm/scent/home
 pheromone layers over the drawn terrain (dirt, standing food, stone, nests),
 click an ant to watch its network fire, and drag the tuning sliders (behind the
 collapsible **Tuning** header) to retune the running simulation without

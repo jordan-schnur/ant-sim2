@@ -88,6 +88,7 @@ export function mountExplorer(pane: HTMLElement, store: Store): void {
       kvRow(kv, "stone", "stone", r.stone.toFixed(0));
       kvRow(kv, "nest", "nest", r.nest === null ? "—" : store.colonyName(r.nest));
       kvRow(kv, "food trail", "phFood", r.phFood.toFixed(0));
+      kvRow(kv, "home trail", "phHome", r.phHome.toFixed(0));
       kvRow(kv, "alarm", "phAlarm", r.phAlarm.toFixed(0));
       kvRow(kv, "scent", "phScent", r.phScent.toFixed(0));
       kvRow(kv, "scent owner", "phOwner", r.phOwner === null ? "—" : store.colonyName(r.phOwner));

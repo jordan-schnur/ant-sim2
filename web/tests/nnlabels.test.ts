@@ -22,19 +22,24 @@ describe("input labels mirror the sim's sense.rs layout", () => {
   it("names the whisker channels by direction and channel", () => {
     // Index 0 is whisker 0 (far left), channel 0 (food).
     expect(inputLabel(0)).toBe("whisker far left · food");
-    // Index 14 is whisker 2 (ahead), channel 2 (alarm): 2*6 + 2.
-    expect(inputLabel(14)).toBe("whisker ahead · alarm");
-    // Index 29 is whisker 4 (far right), channel 5 (wall).
-    expect(inputLabel(29)).toBe("whisker far right · wall");
+    // Index 16 is whisker 2 (ahead), channel 2 (alarm): 2*7 + 2.
+    expect(inputLabel(16)).toBe("whisker ahead · alarm");
+    // Index 33 is whisker 4 (far right), channel 5 (wall): 4*7 + 5.
+    expect(inputLabel(33)).toBe("whisker far right · wall");
+    // Index 34 is the new 7th channel: whisker 4, home trail: 4*7 + 6.
+    expect(inputLabel(34)).toBe("whisker far right · home trail");
   });
 
   it("names the non-whisker inputs", () => {
-    expect(inputLabel(30)).toBe("underfoot food");
-    expect(inputLabel(35)).toBe("energy");
-    expect(inputLabel(39)).toBe("bias");
-    expect(inputLabel(40)).toBe("memory 0");
-    expect(inputLabel(43)).toBe("memory 3");
-    expect(inputLabel(44)).toBe("facing (sin)");
+    expect(inputLabel(35)).toBe("underfoot food");
+    expect(inputLabel(38)).toBe("underfoot home trail");
+    expect(inputLabel(41)).toBe("energy");
+    expect(inputLabel(45)).toBe("bias");
+    expect(inputLabel(46)).toBe("memory 0");
+    expect(inputLabel(49)).toBe("memory 3");
+    expect(inputLabel(50)).toBe("home vector x");
+    expect(inputLabel(52)).toBe("home distance");
+    expect(inputLabel(53)).toBe("facing (sin)");
     expect(inputLabel(N_INPUTS - 1)).toBe("facing (cos)");
   });
 });
@@ -48,7 +53,7 @@ describe("output labels", () => {
 
 describe("nodeInfo", () => {
   it("labels inputs, outputs (with a description), and hidden neurons", () => {
-    expect(nodeInfo(0, 30).label).toBe("underfoot food");
+    expect(nodeInfo(0, 35).label).toBe("underfoot food");
     const out = nodeInfo(3, 1);
     expect(out.label).toBe("output · vel y");
     expect(out.desc).toBeTruthy();

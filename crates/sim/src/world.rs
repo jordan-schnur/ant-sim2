@@ -218,6 +218,7 @@ impl World {
             &self.grid,
             &self.phero,
             &self.spatial,
+            &self.colonies,
             &self.cfg,
         );
         self.ants.genome[i].forward(&inputs)
@@ -238,6 +239,7 @@ impl World {
                         &self.grid,
                         &self.phero,
                         &self.spatial,
+                        &self.colonies,
                         &self.cfg,
                     )
                 } else {
@@ -522,6 +524,11 @@ impl World {
             eat(&c.deaths.to_le_bytes());
         }
         for v in &self.phero.food {
+            eat(&v.to_bits().to_le_bytes());
+        }
+        // Fold the home trail in too so the golden master pins it directly,
+        // not just indirectly through ants' movement responses to it.
+        for v in &self.phero.home {
             eat(&v.to_bits().to_le_bytes());
         }
         for v in &self.grid.food {
