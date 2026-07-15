@@ -146,6 +146,17 @@
         pointer-events: none;
       }
 
+      .info-dot { display: inline-flex; align-items: center; justify-content: center;
+        width: 13px; height: 13px; margin-left: 4px; border-radius: 50%;
+        font-size: 10px; line-height: 1; color: var(--dim); cursor: help;
+        user-select: none; vertical-align: middle; }
+      .info-dot:hover, .info-dot:focus { color: var(--accent); outline: none; }
+      .info-dot-empty { display: none; }
+      .info-pop { position: fixed; z-index: 60; max-width: 260px;
+        background: #06070a; color: var(--text); border: 1px solid var(--line);
+        border-radius: 5px; padding: 6px 8px; font-size: 11px; line-height: 1.4;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+
       .tabstrip { display: flex; gap: 4px; margin-bottom: 10px; }
       .tab { flex: 1; }
       .tabpane { min-width: 0; }
