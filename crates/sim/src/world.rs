@@ -218,6 +218,7 @@ impl World {
             &self.grid,
             &self.phero,
             &self.spatial,
+            &self.colonies,
             &self.cfg,
         );
         self.ants.genome[i].forward(&inputs)
@@ -238,6 +239,7 @@ impl World {
                         &self.grid,
                         &self.phero,
                         &self.spatial,
+                        &self.colonies,
                         &self.cfg,
                     )
                 } else {

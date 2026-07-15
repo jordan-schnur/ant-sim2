@@ -73,7 +73,7 @@ describe("dispatch", () => {
     expect(store.state.detail?.alive).toBe(true);
 
     net.dispatch(load("genome.bin"));
-    expect(store.state.genome?.params.length).toBe(1160);
+    expect(store.state.genome?.params.length).toBe(1304);
 
     net.dispatch(load("config.bin"));
     expect(store.state.config.size).toBe(18);

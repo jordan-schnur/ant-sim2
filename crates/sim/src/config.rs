@@ -73,6 +73,15 @@ pub struct Config {
     pub food_diffusion: f32,
     pub alarm_diffusion: f32,
     pub scent_diffusion: f32,
+    /// The exploration/home trail decays and spreads like the food trail. Kept
+    /// off the tunable rail for now (a fixed constant); promote to
+    /// `CONFIG_FIELDS` if it wants live tuning.
+    pub home_evaporation: f32,
+    pub home_diffusion: f32,
+    /// Home-trail deposited per tick by an *unladen* ant, the complement to
+    /// `food_trail_emission` (laid by laden ants). Unladen ants cluster at and
+    /// radiate from the nest, so this field peaks homeward.
+    pub home_trail_emission: f32,
     /// Food-trail deposited per unit of carried food, per tick.
     pub food_trail_emission: f32,
     /// Alarm deposited when an ant attacks or is damaged.
@@ -191,6 +200,12 @@ impl Default for Config {
             food_diffusion: 0.12,
             alarm_diffusion: 0.20,
             scent_diffusion: 0.06,
+            // The home trail should linger a little longer and spread a little
+            // wider than the food trail, so an outbound network of routes builds
+            // up around the nest rather than a set of thin one-ant tracks.
+            home_evaporation: 0.997,
+            home_diffusion: 0.15,
+            home_trail_emission: 2.0,
             food_trail_emission: 2.0,
             alarm_emission: 5.0,
             ant_scent_emission: 0.5,

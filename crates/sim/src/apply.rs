@@ -197,6 +197,12 @@ pub fn deposit_passive(cell: usize, carrying: f32, colony: u8, ctx: &mut ApplyCt
     if carrying > 0.0 {
         ctx.phero
             .deposit_food(cell, ctx.cfg.food_trail_emission * carrying);
+    } else {
+        // The exploration/home trail is the mirror image of the food trail:
+        // only an *unladen* ant marks it. Unladen ants start and re-converge at
+        // the nest, so the field it builds runs from the wider world back home.
+        ctx.phero
+            .deposit_home(cell, ctx.cfg.home_trail_emission);
     }
     ctx.phero
         .deposit_scent(cell, ctx.cfg.ant_scent_emission, colony);

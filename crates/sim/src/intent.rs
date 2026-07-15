@@ -1,6 +1,7 @@
 use crate::ants::Ants;
 use crate::apply::wrap_angle;
 use crate::brain::{Brain, OUT_ATTACK, OUT_GRAB, OUT_MEMORY, OUT_VX, OUT_VY};
+use crate::colony::ColonyState;
 use crate::config::Config;
 use crate::grid::Grid;
 use crate::pheromone::Pheromones;
@@ -39,9 +40,10 @@ pub fn think(
     grid: &Grid,
     phero: &Pheromones,
     spatial: &Spatial,
+    colonies: &[ColonyState],
     cfg: &Config,
 ) -> Intent {
-    let inputs = sense(i, ants, grid, phero, spatial, cfg);
+    let inputs = sense(i, ants, grid, phero, spatial, colonies, cfg);
     let act = ants.genome[i].forward(&inputs);
     let o = act.outputs;
 
@@ -77,12 +79,21 @@ pub fn think(
 mod tests {
     use super::*;
     use crate::ants::{Ants, Spawn};
+    use crate::colony::ColonyState;
     use crate::config::Config;
     use crate::genome::{Genome, Traits};
     use crate::grid::Grid;
     use crate::pheromone::Pheromones;
     use crate::rng::Pcg32;
     use crate::spatial::Spatial;
+
+    /// Two colonies indexed by id; colony 1 (the test ant's) has a nest so the
+    /// home-vector inputs have somewhere to point.
+    fn cols() -> Vec<ColonyState> {
+        let mut cs = vec![ColonyState::new(0), ColonyState::new(1)];
+        cs[1].nest_center = (8.5, 8.5);
+        cs
+    }
 
     fn world() -> (Config, Ants, Grid, Pheromones, Spatial) {
         let c = Config {
@@ -125,8 +136,8 @@ mod tests {
     #[test]
     fn think_is_pure() {
         let (c, a, g, p, s) = world();
-        let x = think(0, &a, &g, &p, &s, &c);
-        let y = think(0, &a, &g, &p, &s, &c);
+        let x = think(0, &a, &g, &p, &s, &cols(), &c);
+        let y = think(0, &a, &g, &p, &s, &cols(), &c);
         assert_eq!(x.heading, y.heading);
         assert_eq!(x.speed, y.speed);
     }
@@ -136,14 +147,14 @@ mod tests {
         let (c, mut a, g, p, s) = world();
         // Zero velocity vector -> hold position.
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        assert_eq!(think(0, &a, &g, &p, &s, &c).speed, 0.0, "idle should not move");
+        assert_eq!(think(0, &a, &g, &p, &s, &cols(), &c).speed, 0.0, "idle should not move");
 
         // Full-magnitude command -> speed capped at the trait.
         force_outputs(
             &mut a.genome[0],
             [1.0 - 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         );
-        let sp = think(0, &a, &g, &p, &s, &c).speed;
+        let sp = think(0, &a, &g, &p, &s, &cols(), &c).speed;
         assert!(
             sp <= a.genome[0].traits.max_speed + 1e-4,
             "speed {sp} exceeded trait"
@@ -161,7 +172,7 @@ mod tests {
             &mut a.genome[0],
             [-1.0 + 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         );
-        let delta = think(0, &a, &g, &p, &s, &c).heading - a.heading[0];
+        let delta = think(0, &a, &g, &p, &s, &cols(), &c).heading - a.heading[0];
         assert!(delta.abs() <= MAX_TURN + 1e-4, "turned {delta} in one tick");
         assert!(delta.abs() > 0.0, "should have started turning");
     }
@@ -177,7 +188,7 @@ mod tests {
             &mut a.genome[0],
             [0.0, 1.0 - 1e-6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         );
-        let delta = think(0, &a, &g, &p, &s, &c).heading - a.heading[0];
+        let delta = think(0, &a, &g, &p, &s, &cols(), &c).heading - a.heading[0];
         assert!(delta.abs() < 1e-3, "aligned ant kept turning by {delta}");
     }
 
@@ -186,7 +197,7 @@ mod tests {
         let (c, mut a, g, p, s) = world();
         a.heading[0] = 1.0;
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        let out = think(0, &a, &g, &p, &s, &c);
+        let out = think(0, &a, &g, &p, &s, &cols(), &c);
         assert_eq!(out.heading, 1.0, "a zero command must not rotate the ant");
         assert_eq!(out.speed, 0.0);
     }
@@ -195,24 +206,24 @@ mod tests {
     fn attack_fires_only_above_threshold() {
         let (c, mut a, g, p, s) = world();
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.9, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        assert!(think(0, &a, &g, &p, &s, &c).attack);
+        assert!(think(0, &a, &g, &p, &s, &cols(), &c).attack);
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        assert!(!think(0, &a, &g, &p, &s, &c).attack);
+        assert!(!think(0, &a, &g, &p, &s, &cols(), &c).attack);
     }
 
     #[test]
     fn grab_and_release_are_opposite_signs_and_never_both() {
         let (c, mut a, g, p, s) = world();
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.9, 0.0, 0.0, 0.0, 0.0]);
-        let i = think(0, &a, &g, &p, &s, &c);
+        let i = think(0, &a, &g, &p, &s, &cols(), &c);
         assert!(i.grab && !i.release);
 
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.0, 0.0]);
-        let i = think(0, &a, &g, &p, &s, &c);
+        let i = think(0, &a, &g, &p, &s, &cols(), &c);
         assert!(i.release && !i.grab);
 
         force_outputs(&mut a.genome[0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        let i = think(0, &a, &g, &p, &s, &c);
+        let i = think(0, &a, &g, &p, &s, &cols(), &c);
         assert!(!i.release && !i.grab);
     }
 
@@ -223,7 +234,7 @@ mod tests {
             &mut a.genome[0],
             [0.0, 0.0, 0.0, 0.0, 0.5, -0.5, 0.25, -0.25],
         );
-        let i = think(0, &a, &g, &p, &s, &c);
+        let i = think(0, &a, &g, &p, &s, &cols(), &c);
         for (got, want) in i.memory.iter().zip([0.5, -0.5, 0.25, -0.25]) {
             assert!((got - want).abs() < 1e-5, "{got} != {want}");
         }

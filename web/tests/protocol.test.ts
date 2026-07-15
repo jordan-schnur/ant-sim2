@@ -122,6 +122,9 @@ describe("pheromones", () => {
     expect(f.h).toBe(expected.phero.h);
     expect(f.factor).toBe(expected.phero.factor);
     expect(f.rgba.byteLength).toBe(f.w * f.h * 4);
+    // The home / exploration trail is a single-channel plane appended after the
+    // RGBA block; decoding it wrong would read past the RGBA span or truncate.
+    expect(f.home.byteLength).toBe(f.w * f.h);
   });
 
   it("reads the first texel byte-for-byte", () => {
@@ -288,7 +291,7 @@ describe("ant detail", () => {
   it("carries the full activation vector for every layer", () => {
     const f = decode(load("detail.bin"));
     if (f?.kind !== "detail") throw new Error("not a detail frame");
-    expect(f.inputs.length).toBe(46);
+    expect(f.inputs.length).toBe(55);
     expect(f.h1.length).toBe(16);
     expect(f.h2.length).toBe(16);
     expect(f.outputs.length).toBe(8);

@@ -1,4 +1,5 @@
 use crate::ants::Ants;
+use crate::colony::ColonyState;
 use crate::config::Config;
 use crate::grid::Grid;
 use crate::pheromone::Pheromones;
@@ -6,17 +7,18 @@ use crate::spatial::Spatial;
 use crate::{N_INPUTS, N_MEMORY};
 
 // --- Input vector layout. These indices are the contract with `brain.rs`. ---
-pub const IN_WHISKERS: usize = 0; // 5 whiskers x 6 channels = 30
-pub const IN_UNDERFOOT: usize = 30; // food, food-pheromone, alarm
-pub const IN_COUNTS: usize = 33; // friends, foes
-pub const IN_PROPRIO: usize = 35; // energy, size, carrying, age
-pub const IN_BIAS: usize = 39;
-pub const IN_MEMORY: usize = 40; // N_MEMORY recurrent values
-pub const IN_HEADING: usize = 44; // sin, cos of the ant's own heading
+pub const IN_WHISKERS: usize = 0; // 5 whiskers x 7 channels = 35
+pub const IN_UNDERFOOT: usize = 35; // food, food-pheromone, alarm, home-trail
+pub const IN_COUNTS: usize = 39; // friends, foes
+pub const IN_PROPRIO: usize = 41; // energy, size, carrying, age
+pub const IN_BIAS: usize = 45;
+pub const IN_MEMORY: usize = 46; // N_MEMORY recurrent values
+pub const IN_HOME: usize = 50; // home vector: unit x, unit y, normalized distance
+pub const IN_HEADING: usize = 53; // sin, cos of the ant's own heading
 
 /// Radians relative to the ant's heading. Antennae, not eyes.
 pub const WHISKER_ANGLES: [f32; 5] = [-1.2, -0.6, 0.0, 0.6, 1.2];
-pub const CHANNELS_PER_WHISKER: usize = 6;
+pub const CHANNELS_PER_WHISKER: usize = 7;
 
 pub const CH_FOOD: usize = 0;
 pub const CH_FOOD_PHERO: usize = 1;
@@ -24,6 +26,7 @@ pub const CH_ALARM: usize = 2;
 pub const CH_OWN_SCENT: usize = 3;
 pub const CH_FOE_SCENT: usize = 4;
 pub const CH_BLOCKED: usize = 5;
+pub const CH_HOME_TRAIL: usize = 6;
 
 /// Square radius, in cells, for the friend/foe counters.
 pub const NEIGHBOUR_RADIUS: i32 = 2;
@@ -49,6 +52,7 @@ pub fn sense(
     grid: &Grid,
     phero: &Pheromones,
     spatial: &Spatial,
+    colonies: &[ColonyState],
     cfg: &Config,
 ) -> [f32; N_INPUTS] {
     let mut inputs = [0.0f32; N_INPUTS];
@@ -79,6 +83,7 @@ pub fn sense(
         inputs[base + CH_OWN_SCENT] = squash_phero(own, d);
         inputs[base + CH_FOE_SCENT] = squash_phero(foe, d);
         inputs[base + CH_BLOCKED] = if grid.stone[c] { 1.0 } else { 0.0 };
+        inputs[base + CH_HOME_TRAIL] = squash_phero(phero.home[c], d);
     }
 
     // --- Underfoot ---
@@ -87,6 +92,7 @@ pub fn sense(
     inputs[IN_UNDERFOOT] = (grid.food[here] / cfg.food_patch_max).min(1.0);
     inputs[IN_UNDERFOOT + 1] = squash_phero(phero.food[here], cfg.phero_log_div);
     inputs[IN_UNDERFOOT + 2] = squash_phero(phero.alarm[here], cfg.phero_log_div);
+    inputs[IN_UNDERFOOT + 3] = squash_phero(phero.home[here], cfg.phero_log_div);
 
     // --- Crowding ---
     let (friends, foes) =
@@ -106,6 +112,25 @@ pub fn sense(
 
     inputs[IN_MEMORY..IN_MEMORY + N_MEMORY].copy_from_slice(&ants.memory[i]);
 
+    // --- Home vector (path integration, given directly) ---
+    //
+    // A world-frame unit vector from the ant to its own nest, plus a normalized
+    // distance. World-frame because the outputs are a world-frame velocity
+    // command (see `intent.rs`): a competent network can copy this vector almost
+    // straight to `(OUT_VX, OUT_VY)` and walk home. Real ants maintain exactly
+    // this — a home vector with both a direction and a length — from a sky
+    // compass and a step-counting odometer. On the nest itself the vector is
+    // zero, which reads as "no homing pressure".
+    let (ncx, ncy) = colonies[colony as usize].nest_center;
+    let (dx, dy) = (ncx - px, ncy - py);
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist > 1e-6 {
+        inputs[IN_HOME] = dx / dist;
+        inputs[IN_HOME + 1] = dy / dist;
+    }
+    let diag = ((cfg.width as f32).powi(2) + (cfg.height as f32).powi(2)).sqrt();
+    inputs[IN_HOME + 2] = (dist / diag).min(1.0);
+
     // The ant's own facing. Outputs are a world-frame velocity command, so the
     // network needs its heading to map ego-relative whisker readings onto a
     // world direction. sin/cos keeps the signal continuous across the +/-PI
@@ -120,6 +145,7 @@ pub fn sense(
 mod tests {
     use super::*;
     use crate::ants::{Ants, Spawn};
+    use crate::colony::ColonyState;
     use crate::config::Config;
     use crate::genome::{Genome, Traits};
     use crate::grid::Grid;
@@ -134,6 +160,15 @@ mod tests {
             height: 16,
             ..Config::default()
         }
+    }
+
+    /// Two colonies, indexed by id. Colony 1 (the ant's) nests at the ant's own
+    /// cell, so the default home vector is zero and existing assertions about
+    /// bounds and unrelated channels are undisturbed.
+    fn cols() -> Vec<ColonyState> {
+        let mut cs = vec![ColonyState::new(0), ColonyState::new(1)];
+        cs[1].nest_center = (8.5, 8.5);
+        cs
     }
 
     /// An ant at (8,8) facing +x, vision 3, all traits mid-range.
@@ -168,20 +203,54 @@ mod tests {
     #[test]
     fn layout_constants_sum_to_the_input_count() {
         assert_eq!(IN_UNDERFOOT, WHISKER_ANGLES.len() * CHANNELS_PER_WHISKER);
-        assert_eq!(IN_MEMORY + crate::N_MEMORY, IN_HEADING);
+        assert_eq!(IN_MEMORY + crate::N_MEMORY, IN_HOME);
+        assert_eq!(IN_HOME + 3, IN_HEADING); // unit x, unit y, distance
         assert_eq!(IN_HEADING + 2, N_INPUTS); // sin, cos close out the vector
+    }
+
+    #[test]
+    fn the_home_vector_points_at_the_ants_own_nest() {
+        let (c, mut a, g, p, s) = setup();
+        let mut cs = cols();
+        // Put the nest due +y of the ant at (8.5, 8.5).
+        cs[1].nest_center = (8.5, 12.5);
+        a.x[0] = 8.5;
+        a.y[0] = 8.5;
+        let inputs = sense(0, &a, &g, &p, &s, &cs, &c);
+        assert!(inputs[IN_HOME].abs() < 1e-6, "no x-component due north");
+        assert!((inputs[IN_HOME + 1] - 1.0).abs() < 1e-6, "unit +y toward nest");
+        assert!(inputs[IN_HOME + 2] > 0.0, "distance is nonzero off the nest");
+    }
+
+    #[test]
+    fn the_home_vector_is_zero_on_the_nest() {
+        // Nest at the ant's own cell (the `cols()` default): no homing pressure.
+        let (c, a, g, p, s) = setup();
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
+        assert_eq!(inputs[IN_HOME], 0.0);
+        assert_eq!(inputs[IN_HOME + 1], 0.0);
+        assert!(inputs[IN_HOME + 2] < 1e-6);
+    }
+
+    #[test]
+    fn a_whisker_reads_the_home_trail() {
+        let (c, a, mut g, mut p, s) = setup();
+        // vision 3, heading 0 (+x): the forward whisker samples ~(11,8).
+        let ahead = g.idx(11, 8);
+        p.deposit_home(ahead, 100.0);
+        assert!(whisker(&sense(0, &a, &g, &p, &s, &cols(), &c), 2, CH_HOME_TRAIL) > 0.0);
     }
 
     #[test]
     fn bias_input_is_always_one() {
         let (c, a, g, p, s) = setup();
-        assert_eq!(sense(0, &a, &g, &p, &s, &c)[IN_BIAS], 1.0);
+        assert_eq!(sense(0, &a, &g, &p, &s, &cols(), &c)[IN_BIAS], 1.0);
     }
 
     #[test]
     fn every_input_is_finite_and_bounded() {
         let (c, a, g, p, s) = setup();
-        for (i, v) in sense(0, &a, &g, &p, &s, &c).iter().enumerate() {
+        for (i, v) in sense(0, &a, &g, &p, &s, &cols(), &c).iter().enumerate() {
             assert!(v.is_finite(), "input {i} is not finite");
             assert!((-1.0..=1.0).contains(v), "input {i} = {v} out of [-1,1]");
         }
@@ -191,7 +260,7 @@ mod tests {
     fn memory_inputs_mirror_the_ants_memory() {
         let (c, mut a, g, p, s) = setup();
         a.memory[0] = [0.1, -0.2, 0.3, -0.4];
-        let inputs = sense(0, &a, &g, &p, &s, &c);
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
         assert_eq!(&inputs[IN_MEMORY..IN_MEMORY + N_MEMORY], &[0.1, -0.2, 0.3, -0.4]);
     }
 
@@ -199,7 +268,7 @@ mod tests {
     fn the_heading_inputs_are_the_sin_and_cos_of_the_ants_facing() {
         let (c, mut a, g, p, s) = setup();
         a.heading[0] = 0.0; // facing +x
-        let inputs = sense(0, &a, &g, &p, &s, &c);
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
         assert!((inputs[IN_HEADING] - 0.0).abs() < 1e-6, "sin(0) should be 0");
         assert!((inputs[IN_HEADING + 1] - 1.0).abs() < 1e-6, "cos(0) should be 1");
     }
@@ -210,7 +279,7 @@ mod tests {
         // vision = 3, heading = 0 (+x), so the forward whisker samples ~(11,8).
         let i = g.idx(11, 8);
         g.food[i] = c.food_patch_max;
-        let inputs = sense(0, &a, &g, &p, &s, &c);
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
         assert!(
             whisker(&inputs, 2, CH_FOOD) > 0.9,
             "forward whisker should see it"
@@ -225,7 +294,7 @@ mod tests {
         g.food[i] = c.food_patch_max;
         // Facing +y, the forward whisker should now find it.
         a.heading[0] = std::f32::consts::FRAC_PI_2;
-        let inputs = sense(0, &a, &g, &p, &s, &c);
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
         assert!(whisker(&inputs, 2, CH_FOOD) > 0.9);
     }
 
@@ -234,7 +303,7 @@ mod tests {
         let (c, a, mut g, p, s) = setup();
         let i = g.idx(11, 8);
         g.stone[i] = true;
-        assert_eq!(whisker(&sense(0, &a, &g, &p, &s, &c), 2, CH_BLOCKED), 1.0);
+        assert_eq!(whisker(&sense(0, &a, &g, &p, &s, &cols(), &c), 2, CH_BLOCKED), 1.0);
     }
 
     #[test]
@@ -242,7 +311,7 @@ mod tests {
         let (c, mut a, g, p, s) = setup();
         a.x[0] = 0.5; // vision 3 to the left is off the map
         a.heading[0] = std::f32::consts::PI;
-        assert_eq!(whisker(&sense(0, &a, &g, &p, &s, &c), 2, CH_BLOCKED), 1.0);
+        assert_eq!(whisker(&sense(0, &a, &g, &p, &s, &cols(), &c), 2, CH_BLOCKED), 1.0);
     }
 
     #[test]
@@ -250,13 +319,13 @@ mod tests {
         let (c, a, g, mut p, s) = setup();
         let ahead = g.idx(11, 8);
         p.deposit_scent(ahead, 10.0, 1); // ant's own colony
-        let inputs = sense(0, &a, &g, &p, &s, &c);
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
         assert!(whisker(&inputs, 2, CH_OWN_SCENT) > 0.0);
         assert_eq!(whisker(&inputs, 2, CH_FOE_SCENT), 0.0);
 
         let mut p2 = Pheromones::new(&c);
         p2.deposit_scent(ahead, 10.0, 7); // a foreign colony
-        let inputs = sense(0, &a, &g, &p2, &s, &c);
+        let inputs = sense(0, &a, &g, &p2, &s, &cols(), &c);
         assert_eq!(whisker(&inputs, 2, CH_OWN_SCENT), 0.0);
         assert!(whisker(&inputs, 2, CH_FOE_SCENT) > 0.0);
     }
@@ -268,7 +337,7 @@ mod tests {
         g.food[here] = c.food_patch_max;
         p.deposit_food(here, 100.0);
         p.deposit_alarm(here, 100.0);
-        let inputs = sense(0, &a, &g, &p, &s, &c);
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
         assert!(inputs[IN_UNDERFOOT] > 0.9);
         assert!(inputs[IN_UNDERFOOT + 1] > 0.0);
         assert!(inputs[IN_UNDERFOOT + 2] > 0.0);
@@ -301,7 +370,7 @@ mod tests {
         let phero = Pheromones::new(&c);
         let mut s = Spatial::new(&c);
         s.rebuild(&a);
-        let inputs = sense(0, &a, &grid, &phero, &s, &c);
+        let inputs = sense(0, &a, &grid, &phero, &s, &cols(), &c);
         assert!(
             inputs[IN_COUNTS] > 0.0,
             "should see one friend besides itself"
@@ -313,16 +382,16 @@ mod tests {
     fn proprioception_reports_fullness_not_raw_energy() {
         let (c, mut a, g, p, s) = setup();
         a.energy[0] = a.genome[0].max_energy(&c, a.size[0]);
-        assert_eq!(sense(0, &a, &g, &p, &s, &c)[IN_PROPRIO], 1.0);
+        assert_eq!(sense(0, &a, &g, &p, &s, &cols(), &c)[IN_PROPRIO], 1.0);
         a.energy[0] = 0.0;
-        assert_eq!(sense(0, &a, &g, &p, &s, &c)[IN_PROPRIO], 0.0);
+        assert_eq!(sense(0, &a, &g, &p, &s, &cols(), &c)[IN_PROPRIO], 0.0);
     }
 
     #[test]
     fn carrying_input_saturates_at_capacity() {
         let (c, mut a, g, p, s) = setup();
         a.carrying[0] = a.genome[0].traits.carry_capacity;
-        assert_eq!(sense(0, &a, &g, &p, &s, &c)[IN_PROPRIO + 2], 1.0);
+        assert_eq!(sense(0, &a, &g, &p, &s, &cols(), &c)[IN_PROPRIO + 2], 1.0);
     }
 
     #[test]

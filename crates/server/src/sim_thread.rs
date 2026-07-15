@@ -701,7 +701,8 @@ mod tests {
 
         let ph = h.phero.borrow().clone();
         assert_eq!(ph[0], protocol::TAG_PHERO);
-        assert_eq!(ph.len(), 14 + 16 * 16 * 4);
+        // RGBA block plus the trailing R8 home-trail plane.
+        assert_eq!(ph.len(), 14 + 16 * 16 * 4 + 16 * 16);
 
         let st = h.stats.borrow().clone();
         assert_eq!(st[0], protocol::TAG_STATS);

@@ -30,7 +30,9 @@ pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 46;
-pub const ANT_DETAIL_LEN: usize = 433;
+/// Grew from 433 when the input vector gained the home vector and the
+/// home-trail whisker/underfoot channels (N_INPUTS 46 -> 55, +9 f32 = +36).
+pub const ANT_DETAIL_LEN: usize = 469;
 
 /// `size` byte divisor. `TRAIT_RANGES` caps `max_size` at 3.0, so this cannot
 /// clip a legal ant.
@@ -316,10 +318,14 @@ pub fn encode_ants(out: &mut Vec<u8>, w: &World) {
 }
 
 /// RGBA8. R = food trail, G = alarm, B = colony scent, A = owning colony.
+/// Then a trailing single-channel (R8) block of the same `sw*sh` dimensions
+/// carrying the home / exploration trail — appended *after* the RGBA block so
+/// every RGBA offset above is unchanged and an old client reading only the
+/// RGBA span still decodes.
 ///
-/// R/G/B run through `squash_phero`, the very function the ants' sensors use,
-/// so on-screen brightness *is* the number the ant reads. That makes the view a
-/// debugging instrument rather than a decoration.
+/// R/G/B/home run through `squash_phero`, the very function the ants' sensors
+/// use, so on-screen brightness *is* the number the ant reads. That makes the
+/// view a debugging instrument rather than a decoration.
 ///
 /// Downsampling is 2x2 **max**, not mean. A foraging trail is often one cell
 /// wide; averaging it with three empty neighbours quarters its brightness and
@@ -333,7 +339,7 @@ pub fn encode_phero(out: &mut Vec<u8>, w: &World, factor: u8) {
     let sh = w.cfg.height as usize / f;
 
     out.clear();
-    out.reserve(14 + sw * sh * 4);
+    out.reserve(14 + sw * sh * 5);
     put_u8(out, TAG_PHERO);
     put_u64(out, w.tick_count);
     put_u16(out, sw as u16);
@@ -363,6 +369,20 @@ pub fn encode_phero(out: &mut Vec<u8>, w: &World, factor: u8) {
             put_u8(out, (squash_phero(alarm, div) * 255.0) as u8);
             put_u8(out, (squash_phero(scent, div) * 255.0) as u8);
             put_u8(out, owner);
+        }
+    }
+
+    // The home-trail plane, R8, same order as the RGBA block above.
+    for sy in 0..sh {
+        for sx in 0..sw {
+            let mut home = 0.0f32;
+            for dy in 0..f {
+                for dx in 0..f {
+                    let i = (sy * f + dy) * width + (sx * f + dx);
+                    home = home.max(p.home[i]);
+                }
+            }
+            put_u8(out, (squash_phero(home, div) * 255.0) as u8);
         }
     }
 }
@@ -684,19 +704,36 @@ mod tests {
     }
 
     #[test]
-    fn a_pheromone_frame_is_a_header_plus_rgba_per_texel() {
+    fn a_pheromone_frame_is_a_header_plus_rgba_then_a_home_plane() {
         let w = World::new(&small(), 1);
         let mut b = Vec::new();
         encode_phero(&mut b, &w, 1);
-        assert_eq!(b.len(), 14 + 32 * 32 * 4);
+        // RGBA block (w*h*4) followed by the R8 home plane (w*h).
+        assert_eq!(b.len(), 14 + 32 * 32 * 4 + 32 * 32);
         assert_eq!(b[0], TAG_PHERO);
         assert_eq!(u16::from_le_bytes([b[9], b[10]]), 32);
         assert_eq!(b[13], 1);
 
         encode_phero(&mut b, &w, 2);
-        assert_eq!(b.len(), 14 + 16 * 16 * 4);
+        assert_eq!(b.len(), 14 + 16 * 16 * 4 + 16 * 16);
         assert_eq!(u16::from_le_bytes([b[9], b[10]]), 16);
         assert_eq!(b[13], 2);
+    }
+
+    #[test]
+    fn the_home_plane_follows_the_rgba_block_and_carries_the_trail() {
+        let mut w = World::new(&small(), 1);
+        w.phero.home.iter_mut().for_each(|v| *v = 0.0);
+        let bright = w.grid.idx(2, 2); // sub-cell of super-cell (1,1) at factor 2
+        w.phero.home[bright] = 500.0;
+
+        let mut b = Vec::new();
+        encode_phero(&mut b, &w, 2);
+        let home_base = 14 + 16 * 16 * 4;
+        let texel = home_base + (1 * 16 + 1);
+        let full = (squash_phero(500.0, w.cfg.phero_log_div) * 255.0) as u8;
+        assert_eq!(b[texel], full, "home trail must survive the 2x2 max downsample");
+        assert!(full > 60, "fixture is too dim to be meaningful");
     }
 
     #[test]
@@ -841,8 +878,11 @@ mod tests {
         assert_eq!(b[10], 1, "alive byte");
         assert_eq!(u32::from_le_bytes(b[45..49].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(b[49..53].try_into().unwrap()), 4);
-        // food_harvested is the last fixed f32, at offset 429 (just past outputs).
-        assert_eq!(f32::from_le_bytes(b[429..433].try_into().unwrap()), 9.0);
+        // food_harvested is the last fixed f32, at ANT_DETAIL_LEN - 4 (past outputs).
+        assert_eq!(
+            f32::from_le_bytes(b[ANT_DETAIL_LEN - 4..ANT_DETAIL_LEN].try_into().unwrap()),
+            9.0
+        );
     }
 
     #[test]
@@ -923,7 +963,10 @@ mod tests {
                 name: "",
             },
         );
-        let out0 = f32::from_le_bytes(b[397..401].try_into().unwrap());
+        // Outputs start just past the inputs + both hidden layers:
+        // 85 + (N_INPUTS + N_HIDDEN1 + N_HIDDEN2) * 4.
+        let out_off = 85 + (sim::N_INPUTS + sim::N_HIDDEN1 + sim::N_HIDDEN2) * 4;
+        let out0 = f32::from_le_bytes(b[out_off..out_off + 4].try_into().unwrap());
         let expected = w.ants.genome[0].forward(&act.inputs);
         assert_eq!(out0, expected.outputs[0]);
     }

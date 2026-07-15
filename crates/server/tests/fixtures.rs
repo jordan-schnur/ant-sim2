@@ -106,7 +106,8 @@ fn emit_protocol_fixtures() {
 
     encode_phero(&mut b, &w, 2);
     write("phero.bin", &b);
-    assert_eq!(b.len(), 14 + 16 * 16 * 4);
+    // RGBA block plus the trailing R8 home-trail plane.
+    assert_eq!(b.len(), 14 + 16 * 16 * 4 + 16 * 16);
 
     encode_terrain(&mut b, &w, 2);
     write("terrain.bin", &b);
