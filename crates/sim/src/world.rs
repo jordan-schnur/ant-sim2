@@ -526,6 +526,11 @@ impl World {
         for v in &self.phero.food {
             eat(&v.to_bits().to_le_bytes());
         }
+        // Fold the home trail in too so the golden master pins it directly,
+        // not just indirectly through ants' movement responses to it.
+        for v in &self.phero.home {
+            eat(&v.to_bits().to_le_bytes());
+        }
         for v in &self.grid.food {
             eat(&v.to_bits().to_le_bytes());
         }

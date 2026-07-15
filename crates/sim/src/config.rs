@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn evaporation_rates_are_decay_multipliers() {
         let c = Config::default();
-        for r in [c.food_evaporation, c.alarm_evaporation, c.scent_evaporation] {
+        for r in [c.food_evaporation, c.alarm_evaporation, c.scent_evaporation, c.home_evaporation] {
             assert!(r > 0.0 && r < 1.0, "evaporation must be in (0,1), got {r}");
         }
     }
