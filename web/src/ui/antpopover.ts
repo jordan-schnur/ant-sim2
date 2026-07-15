@@ -9,7 +9,13 @@
 import type { Camera } from "../render/camera.js";
 import type { Store } from "../state.js";
 import { projectToCss } from "./labels.js";
-import { fitness, DEFAULT_HARVEST_WEIGHT, HARVEST_WEIGHT_FIELD } from "../fitness.js";
+import {
+  fitness,
+  DEFAULT_HARVEST_WEIGHT,
+  HARVEST_WEIGHT_FIELD,
+  DEFAULT_PRODUCTIVITY_WEIGHT,
+  PRODUCTIVITY_WEIGHT_FIELD,
+} from "../fitness.js";
 
 export class AntPopover {
   private root: HTMLElement;
@@ -38,11 +44,19 @@ export class AntPopover {
     this.root.style.display = "";
 
     const weight = store.state.config.get(HARVEST_WEIGHT_FIELD) ?? DEFAULT_HARVEST_WEIGHT;
+    const productivityWeight =
+      store.state.config.get(PRODUCTIVITY_WEIGHT_FIELD) ?? DEFAULT_PRODUCTIVITY_WEIGHT;
     this.nameEl.textContent = d.name || `#${d.id}`;
     this.rows.get("energy")!.textContent = `${d.energy.toFixed(0)} / ${d.maxEnergy.toFixed(0)}`;
     this.rows.get("carrying")!.textContent = d.carrying.toFixed(1);
     this.rows.get("delivered")!.textContent = d.foodDelivered.toFixed(0);
-    this.rows.get("fitness")!.textContent = fitness(d.foodDelivered, d.foodHarvested, weight).toFixed(0);
+    this.rows.get("fitness")!.textContent = fitness(
+      d.foodDelivered,
+      d.foodHarvested,
+      weight,
+      d.recentProductivity,
+      productivityWeight,
+    ).toFixed(0);
 
     const p = projectToCss(camera, d.x, d.y, viewW, viewH, dpr);
     this.root.style.left = `${p.left}px`;

@@ -4,7 +4,7 @@
   "phero": { "w": 16, "h": 16, "factor": 2, "firstTexel": [0, 0, 0, 255], "brightestScent": { "texel": 141, "value": 162, "owner": 0 } },
   "terrain": { "w": 16, "h": 16, "factor": 2, "stoneTexels": 37, "foodTexels": 77, "nestTexels": 8, "maxFood": 255, "maxStone": 255 },
   "stats": { "count": 2, "first": { "id": 0, "population": 14, "store": 123.5, "births": 11, "deaths": 7, "refounds": 3, "meanSize": 0.6764284, "meanLineage": 1.9285715, "deliveredTotal": 45.25, "distinctGenerations": 6 } },
-  "detail": { "id": 0, "colony": 0, "alive": true, "x": 17.5, "y": 4.25, "age": 37, "lineage": 5, "foodHarvested": 6.5, "trait0": 0.33423418, "trait7": 4391.8696, "input0": 1, "input43": 0.008424658, "h1_0": -0.3341031, "h1_15": 0.688115, "h2_0": -0.19269966, "h2_15": 0.94385076, "output0": 0.22740178, "output7": 0.43400577 },
+  "detail": { "id": 0, "colony": 0, "alive": true, "x": 17.5, "y": 4.25, "age": 37, "lineage": 5, "foodHarvested": 6.5, "recentProductivity": 4.25, "trait0": 0.33423418, "trait7": 4391.8696, "input0": 1, "input43": 0.008424658, "h1_0": -0.3341031, "h1_15": 0.688115, "h2_0": -0.19269966, "h2_15": 0.94385076, "output0": 0.22740178, "output7": 0.43400577 },
   "genome": { "id": 42, "nParams": 1240, "param0": 0.10043309 },
   "config": { "count": 23, "field0": 0.995 },
   "colonyMeta": { "count": 2, "name0": "the Obsidian Marsh" },

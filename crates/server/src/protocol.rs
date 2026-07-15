@@ -30,7 +30,7 @@ pub const TAG_CHRONICLE: u8 = 0x0A;
 
 pub const BYTES_PER_ANT: usize = 8;
 pub const BYTES_PER_COLONY: usize = 50;
-pub const ANT_DETAIL_LEN: usize = 453;
+pub const ANT_DETAIL_LEN: usize = 457;
 
 /// `size` byte divisor. `TRAIT_RANGES` caps `max_size` at 3.0, so this cannot
 /// clip a legal ant.
@@ -482,6 +482,7 @@ pub struct AntDetail<'a> {
     pub carrying: f32,
     pub food_delivered: f32,
     pub food_harvested: f32,
+    pub recent_productivity: f32,
     pub age: u32,
     pub lineage: u32,
     pub traits: [f32; 8],
@@ -528,9 +529,13 @@ pub fn encode_ant_detail(out: &mut Vec<u8>, d: &AntDetail) {
         put_f32(out, v);
     }
     // Appended after the activations so every earlier offset is unchanged; the
-    // client reads it at ANT_DETAIL_LEN - 4. Fitness = delivered + w*harvested,
+    // client reads it at a fixed offset. Fitness = delivered + w*harvested,
     // and the inspector shows that number, so the client needs harvested too.
     put_f32(out, d.food_harvested);
+    // Appended immediately after `food_harvested`, at ANT_DETAIL_LEN - 4, so
+    // the inspector's fitness readout can add productivity_weight * this term
+    // without silently omitting it.
+    put_f32(out, d.recent_productivity);
     // The fixed body ends here; `ANT_DETAIL_LEN` pins its length. The name is a
     // length-prefixed tail, so old fixed offsets are unchanged.
     debug_assert_eq!(out.len(), ANT_DETAIL_LEN);
@@ -878,6 +883,7 @@ mod tests {
                 carrying: 0.0,
                 food_delivered: 0.0,
                 food_harvested: 9.0,
+                recent_productivity: 4.5,
                 age: 3,
                 lineage: 4,
                 traits: [0.0; 8],
@@ -890,8 +896,10 @@ mod tests {
         assert_eq!(b[10], 1, "alive byte");
         assert_eq!(u32::from_le_bytes(b[45..49].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(b[49..53].try_into().unwrap()), 4);
-        // food_harvested is the last fixed f32, at offset ANT_DETAIL_LEN - 4.
+        // food_harvested is at its fixed offset, ANT_DETAIL_LEN - 8.
         assert_eq!(f32::from_le_bytes(b[449..453].try_into().unwrap()), 9.0);
+        // recent_productivity is the last fixed f32, at offset ANT_DETAIL_LEN - 4.
+        assert_eq!(f32::from_le_bytes(b[453..457].try_into().unwrap()), 4.5);
     }
 
     #[test]
@@ -928,7 +936,7 @@ mod tests {
         encode_ant_detail(&mut b, &AntDetail {
             id: 5, colony: 0, alive: true, x: 1.0, y: 2.0, heading: 0.0,
             energy: 1.0, max_energy: 1.0, size: 1.0, carrying: 0.0,
-            food_delivered: 0.0, food_harvested: 0.0, age: 0, lineage: 0,
+            food_delivered: 0.0, food_harvested: 0.0, recent_productivity: 0.0, age: 0, lineage: 0,
             traits: [0.0; 8], act: &act, name: "Wren-5",
         });
         assert_eq!(b[ANT_DETAIL_LEN], 6, "name length byte follows the fixed body");
@@ -965,6 +973,7 @@ mod tests {
                 carrying: 0.0,
                 food_delivered: 0.0,
                 food_harvested: 0.0,
+                recent_productivity: 0.0,
                 age: 0,
                 lineage: 0,
                 traits: [0.0; 8],
