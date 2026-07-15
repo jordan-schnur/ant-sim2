@@ -330,7 +330,10 @@ impl World {
     /// ticks; `< 1` disables relocation entirely.
     fn maybe_spawn_food(&mut self) {
         let interval = self.cfg.food_spawn_interval;
-        if interval < 1.0 { return; }
+        // `!(>= 1.0)` rather than `< 1.0` so a non-finite override (e.g. a
+        // headless `--set food_spawn_interval=NaN`) disables relocation instead
+        // of reaching `NaN as u64 == 0` and panicking on `tick_count % 0`.
+        if !(interval >= 1.0) { return; }
         if self.tick_count % (interval as u64) != 0 { return; }
 
         self.patches.retain(|p| {
@@ -990,6 +993,22 @@ mod tests {
         assert_eq!(w.patches.len(), target, "world did not refill to target after depletion");
         let live: f32 = w.grid.food.iter().sum();
         assert!(live > 0.0, "no fresh food after relocation");
+    }
+
+    #[test]
+    fn a_non_finite_spawn_interval_disables_relocation_without_panicking() {
+        // A headless `--set food_spawn_interval=NaN` reaches the sim unclamped;
+        // the guard must treat it as "disabled", not divide by `NaN as u64 == 0`.
+        let c = Config { width: 64, height: 64, num_colonies: 2, initial_ants_per_colony: 0,
+            food_patch_count: 2, food_spawn_interval: f32::NAN, food_patch_target: 5.0,
+            ..Config::default() };
+        let mut w = World::new(&c, 1);
+        let genesis = w.patches.len();
+        assert!(genesis > 0, "expected genesis patches to exist");
+        for _ in 0..5 { w.tick(); } // must not panic
+        // Relocation is disabled, so the genesis patch set is untouched — not
+        // topped up toward food_patch_target (5).
+        assert_eq!(w.patches.len(), genesis);
     }
 
     #[test]
