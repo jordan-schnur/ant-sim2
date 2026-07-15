@@ -53,7 +53,7 @@ mountChronicle(coloniesPane, store);
 // Stats tab: every colony's metrics over time.
 mountStats(statsPane, store);
 // Explorer tab: the context-sensitive inspector.
-mountExplorer(explorerPane, store);
+mountExplorer(explorerPane, store, net);
 
 document.getElementById("collapse-left")!.addEventListener("click", () => {
   leftRail.classList.toggle("collapsed");

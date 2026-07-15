@@ -117,6 +117,51 @@ export const OUTPUT_DESC = [
   "recurrent memory — written back as an input on the next tick",
 ] as const;
 
+/** How each whisker channel is computed. Indexed by CH_* order (see sense.rs). */
+const CHANNEL_DESC = [
+  "Food seen along this antenna: grid food on the sampled cell ÷ food_patch_max, capped at 1. The cell is `vision` steps out at the whisker's angle from your heading.",
+  "Food-trail pheromone along this antenna, log-squashed: ln(1 + value) ÷ phero_log_div, capped at 1.",
+  "Alarm pheromone along this antenna, log-squashed the same way (spikes where ants were attacked).",
+  "Your own colony's territory scent along this antenna, log-squashed.",
+  "Rival colonies' scent along this antenna, log-squashed — enemy territory.",
+  "1 if the sampled cell is stone or off the map, else 0.",
+  "Shared home/exploration trail along this antenna, log-squashed — the trail every ant lays and reads.",
+  "Your own colony's fast-fading recent-path trail along this antenna, log-squashed.",
+] as const;
+
+/** How each non-whisker input is computed, keyed by its inputLabel(). */
+const INPUT_DESC: Record<string, string> = {
+  "underfoot food": "Food on the cell you stand on ÷ food_patch_max, capped at 1.",
+  "underfoot trail": "Food-trail pheromone on your cell, log-squashed.",
+  "underfoot alarm": "Alarm pheromone on your cell, log-squashed.",
+  "underfoot home trail": "Shared home/exploration trail on your cell, log-squashed.",
+  "friends near": "Same-colony ants within 2 cells, not counting you, ÷ 8, capped at 1.",
+  "foes near": "Other-colony ants within 2 cells ÷ 8, capped at 1.",
+  "energy": "Fuel fraction: energy ÷ max_energy, clamped 0–1.",
+  "size": "Body size ÷ your max_size trait, clamped 0–1.",
+  "carrying": "Food in hand ÷ your carry_capacity trait, clamped 0–1.",
+  "age": "Ticks alive ÷ your lifespan trait, clamped 0–1.",
+  "bias": "Constant 1. A fixed input the network can weight as a learnable offset.",
+  "memory 0": "Recurrent memory: whatever the brain wrote to memory output 0 last tick.",
+  "memory 1": "Recurrent memory: whatever the brain wrote to memory output 1 last tick.",
+  "memory 2": "Recurrent memory: whatever the brain wrote to memory output 2 last tick.",
+  "memory 3": "Recurrent memory: whatever the brain wrote to memory output 3 last tick.",
+  "home vector x": "World-frame unit vector toward your nest, X component: (nest_x − x) ÷ distance. Zero on the nest.",
+  "home vector y": "World-frame unit vector toward your nest, Y component: (nest_y − y) ÷ distance. Zero on the nest.",
+  "home distance": "Distance to your nest ÷ the map diagonal, capped at 1.",
+  "facing (sin)": "sin of your heading — lets the network read its own facing without the ±π wrap a raw angle jumps at.",
+  "facing (cos)": "cos of your heading — the other half of the facing signal.",
+};
+
+/** Meaning + computation for input index `i` (0..N_INPUTS). */
+export function inputInfo(i: number): { label: string; desc: string } {
+  const label = inputLabel(i);
+  if (i < CH * WHISKER_DIRS.length) {
+    return { label, desc: CHANNEL_DESC[i % CH] };
+  }
+  return { label, desc: INPUT_DESC[label] ?? "" };
+}
+
 // Fail loudly if the sim's vector sizes drift from these hand-kept labels.
 if (INPUT_GROUPS.reduce((n, g) => n + g.len, 0) !== N_INPUTS) {
   throw new Error(`nnlabels: input groups cover != ${N_INPUTS} inputs`);
@@ -124,10 +169,14 @@ if (INPUT_GROUPS.reduce((n, g) => n + g.len, 0) !== N_INPUTS) {
 if (OUTPUT_LABELS.length !== N_OUTPUTS || OUTPUT_DESC.length !== N_OUTPUTS) {
   throw new Error(`nnlabels: output labels != ${N_OUTPUTS}`);
 }
+// Fail loudly if any input lacks a computation string.
+for (let i = 0; i < N_INPUTS; i++) {
+  if (!inputInfo(i).desc) throw new Error(`nnlabels: input ${i} has no computation copy`);
+}
 
 /** Name (and optional description) for a graph node, for the hover popover. */
 export function nodeInfo(layer: number, index: number): { label: string; desc?: string } {
-  if (layer === 0) return { label: inputLabel(index) };
+  if (layer === 0) return inputInfo(index);
   if (layer === 3) return { label: `output · ${OUTPUT_LABELS[index]}`, desc: OUTPUT_DESC[index] };
   return { label: `hidden ${layer} · neuron ${index}` };
 }

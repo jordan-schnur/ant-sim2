@@ -4,6 +4,7 @@ import {
   INPUT_GROUPS,
   OUTPUT_DESC,
   OUTPUT_LABELS,
+  inputInfo,
   inputLabel,
   nodeInfo,
 } from "../src/nnlabels.js";
@@ -83,5 +84,31 @@ describe("hitTest", () => {
     // Directly on a hidden node, the nearest reportable node must not be hidden.
     const hit = hitTest(hidden.x, hidden.y, 300, 300, 4);
     expect(hit).toBeNull();
+  });
+});
+
+describe("inputInfo", () => {
+  it("gives every input a label matching inputLabel and a non-empty computation", () => {
+    for (let i = 0; i < N_INPUTS; i++) {
+      const info = inputInfo(i);
+      expect(info.label, `label ${i}`).toBe(inputLabel(i));
+      expect(info.desc.length, `desc ${i}`).toBeGreaterThan(12);
+    }
+  });
+
+  it("explains how a whisker food channel is computed", () => {
+    // whisker 2 (ahead), channel 0 (food) = index 16.
+    expect(inputInfo(16).desc.toLowerCase()).toContain("food_patch_max");
+  });
+
+  it("explains the home vector and facing math", () => {
+    expect(inputInfo(55).desc.toLowerCase()).toContain("nest"); // home vector x
+    expect(inputInfo(58).desc.toLowerCase()).toContain("sin"); // facing (sin)
+  });
+
+  it("nodeInfo returns a description for input nodes now", () => {
+    const info = nodeInfo(0, 46); // energy
+    expect(info.label).toBe("energy");
+    expect(info.desc).toBeTruthy();
   });
 });
