@@ -16,6 +16,19 @@ pub const SEED_PATCH_DISTANCE: f32 = 12.0;
 /// Colonies are placed on a circle at this fraction of the map's half-width.
 const NEST_RING_FRAC: f32 = 0.72;
 
+/// No stone and no food within this many tiles of a nest centre, so a colony is
+/// never walled in by rock or handed food on its own doorstep.
+pub const NEST_KEEPOUT_RADIUS: f32 = 4.0;
+
+/// True if `(x, y)` (a cell centre already offset by +0.5, or a patch centre)
+/// lies within `NEST_KEEPOUT_RADIUS + extra` of any colony's nest centre.
+pub fn within_keepout(colonies: &[ColonyState], x: f32, y: f32, extra: f32) -> bool {
+    colonies.iter().any(|c| {
+        let (nx, ny) = c.nest_center;
+        (x - nx).hypot(y - ny) <= NEST_KEEPOUT_RADIUS + extra
+    })
+}
+
 /// How many stone blobs to stamp for a given map, from a target coverage.
 ///
 /// A fixed blob *count* does not survive changing the map size: 60 blobs is 3%
@@ -77,30 +90,45 @@ pub fn generate(cfg: &Config, seed: u64, rng: &mut Pcg32) -> (Grid, Vec<ColonySt
             }
         }
 
-        // One guaranteed patch within foraging reach of this nest.
+        colonies.push(col);
+    }
+
+    // Clear stone around every nest centre. A post-pass, so it consumes no rng and
+    // leaves the blob layout (hence the golden) determined only by the stamp loop.
+    for i in 0..grid.stone.len() {
+        if !grid.stone[i] { continue; }
+        let (x, y) = ((i % grid.width as usize) as f32 + 0.5, (i / grid.width as usize) as f32 + 0.5);
+        if within_keepout(&colonies, x, y, 0.0) {
+            grid.stone[i] = false;
+        }
+    }
+
+    // One guaranteed patch per colony, within foraging reach, now that every nest
+    // exists (so keep-out is tested against all nests, not just those placed so far).
+    for col in &colonies {
+        let (nx, ny) = col.nest_center;
         let a = rng.next_f32() * std::f32::consts::TAU;
         let px = (nx + SEED_PATCH_DISTANCE * a.cos()).clamp(1.0, w - 2.0);
         let py = (ny + SEED_PATCH_DISTANCE * a.sin()).clamp(1.0, h - 2.0);
-        food_patch(&mut grid, px, py, cfg);
-
-        colonies.push(col);
+        food_patch(&mut grid, &colonies, px, py, cfg);
     }
 
     // --- Scattered patches at varied distances. ---
     for _ in 0..cfg.food_patch_count {
         let px = rng.next_f32() * w;
         let py = rng.next_f32() * h;
-        food_patch(&mut grid, px, py, cfg);
+        food_patch(&mut grid, &colonies, px, py, cfg);
     }
 
     (grid, colonies)
 }
 
-fn food_patch(grid: &mut Grid, px: f32, py: f32, cfg: &Config) {
+fn food_patch(grid: &mut Grid, colonies: &[ColonyState], px: f32, py: f32, cfg: &Config) {
     let r = cfg.food_patch_radius;
     let maxf = cfg.food_patch_max;
     stamp(grid, px, py, r, |g, i| {
-        if !g.stone[i] && g.nest[i] == crate::grid::NO_NEST {
+        let (x, y) = ((i % g.width as usize) as f32 + 0.5, (i / g.width as usize) as f32 + 0.5);
+        if !g.stone[i] && g.nest[i] == crate::grid::NO_NEST && !within_keepout(colonies, x, y, 0.0) {
             g.food[i] = maxf;
         }
     });
@@ -288,6 +316,44 @@ mod tests {
                 (0.01..0.30).contains(&f),
                 "{side}x{side} map has {f} stone coverage, outside the workable band"
             );
+        }
+    }
+
+    #[test]
+    fn no_stone_within_keepout_of_any_nest() {
+        let c = cfg();
+        for seed in [1u64, 2, 7] {
+            let (grid, colonies) = generate(&c, seed, &mut Pcg32::new(seed, 1));
+            for col in &colonies {
+                let (nx, ny) = col.nest_center;
+                for i in 0..grid.stone.len() {
+                    if !grid.stone[i] { continue; }
+                    let (x, y) = ((i % grid.width as usize) as f32, (i / grid.width as usize) as f32);
+                    assert!(
+                        (x + 0.5 - nx).hypot(y + 0.5 - ny) > NEST_KEEPOUT_RADIUS,
+                        "stone inside keep-out of colony {} (seed {seed})", col.id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_food_within_keepout_of_any_nest() {
+        let c = cfg();
+        for seed in [1u64, 2, 7] {
+            let (grid, colonies) = generate(&c, seed, &mut Pcg32::new(seed, 1));
+            for col in &colonies {
+                let (nx, ny) = col.nest_center;
+                for i in 0..grid.food.len() {
+                    if grid.food[i] <= 0.0 { continue; }
+                    let (x, y) = ((i % grid.width as usize) as f32, (i / grid.width as usize) as f32);
+                    assert!(
+                        (x + 0.5 - nx).hypot(y + 0.5 - ny) > NEST_KEEPOUT_RADIUS,
+                        "food inside keep-out of colony {} (seed {seed})", col.id
+                    );
+                }
+            }
         }
     }
 
