@@ -8,6 +8,7 @@
 
 import type { Store } from "../state.js";
 import { worldSummary } from "../state.js";
+import type { Net } from "../net.js";
 import { renderAntDetail, attachNNPopover } from "./inspector.js";
 import { sparkline } from "./colony.js";
 import { tileReadout } from "../tile.js";
@@ -15,7 +16,7 @@ import { tipLabel } from "./tooltips.js";
 import { colonyCss } from "../colors.js";
 import { drawSymbol, symbolFor } from "../symbols.js";
 
-export function mountExplorer(pane: HTMLElement, store: Store): void {
+export function mountExplorer(pane: HTMLElement, store: Store, net: Net): void {
   const body = document.createElement("div");
   body.id = "explorer";
   // The NN canvas is persistent (reused across renders) so it is created once.
@@ -38,7 +39,7 @@ export function mountExplorer(pane: HTMLElement, store: Store): void {
     body.innerHTML = "";
 
     if (sel?.kind === "ant") {
-      renderAntDetail(body, nn, store);
+      renderAntDetail(body, nn, store, net);
       return;
     }
 
@@ -57,7 +58,7 @@ export function mountExplorer(pane: HTMLElement, store: Store): void {
       kvRow(kv, "delivered", "delivered", c.deliveredTotal.toFixed(0));
       kvRow(kv, "generation", "generation", c.meanLineage.toFixed(1));
       kvRow(kv, "paid births", "paid births", String(c.births));
-      kvRow(kv, "deaths", "", String(c.deaths));
+      kvRow(kv, "deaths", "deaths", String(c.deaths));
       kvRow(kv, "refounds", "refounds", String(c.refounds));
       kvRow(kv, "mean size", "size", c.meanSize.toFixed(2));
       body.append(kv);

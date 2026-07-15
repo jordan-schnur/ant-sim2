@@ -13,6 +13,7 @@ import { colonyCss } from "../colors.js";
 import type { ColonyHistory, Store } from "../state.js";
 import { symbolFor, drawSymbol } from "../symbols.js";
 import { openGraph } from "./graphmodal.js";
+import { infoDot } from "./explain.js";
 
 /** One metric to chart: how to pull its per-colony series, its units, and how a
  *  single "world" line aggregates the colonies — a sum for extensive quantities
@@ -51,6 +52,7 @@ export function mountStats(root: HTMLElement, store: Store): void {
     const title = document.createElement("div");
     title.className = "stats-chart-title";
     title.textContent = m.label;
+    title.append(infoDot(`stat.${m.key}`));
     const canvas = document.createElement("canvas");
     canvas.className = "stats-canvas";
     block.append(title, canvas);

@@ -6,7 +6,10 @@
 
 import { TRAIT_NAMES } from "../protocol.js";
 import type { Store } from "../state.js";
+import type { Net } from "../net.js";
 import { draw as drawNet, hitTest, activationColor } from "./nnview.js";
+import { openNN } from "./nnmodal.js";
+import { infoDot } from "./explain.js";
 import {
   fitness,
   DEFAULT_HARVEST_WEIGHT,
@@ -35,19 +38,20 @@ export function renderAntDetail(
   body: HTMLElement,
   canvas: HTMLCanvasElement,
   store: Store,
+  net: Net,
 ): void {
   const d = store.state.detail;
   body.innerHTML = "";
 
   if (!d) {
     body.append(muted("click an ant to inspect it"));
-    body.append(canvas);
+    body.append(nnWrap(canvas, store, net));
     paint(canvas, null, null);
     return;
   }
   if (!d.alive) {
     body.append(muted(`ant #${d.id} died`));
-    body.append(canvas);
+    body.append(nnWrap(canvas, store, net));
     paint(canvas, null, null);
     return;
   }
@@ -90,12 +94,12 @@ export function renderAntDetail(
     b.textContent = value;
     kv.append(b);
   };
-  row("name", "", d.name || `#${d.id}`);
-  row("id", "", `#${d.id}`);
-  row("colony", "", store.colonyName(d.colony));
+  row("name", "name", d.name || `#${d.id}`);
+  row("id", "id", `#${d.id}`);
+  row("colony", "colony", store.colonyName(d.colony));
   row("energy", "energy", `${d.energy.toFixed(1)} / ${d.maxEnergy.toFixed(0)}`);
   row("size", "size", d.size.toFixed(2));
-  row("age", "", String(d.age));
+  row("age", "age", String(d.age));
   row("generation", "generation", String(d.lineage));
   row("carrying", "carrying", d.carrying.toFixed(2));
   row("delivered", "delivered", d.foodDelivered.toFixed(1));
@@ -103,7 +107,7 @@ export function renderAntDetail(
   row("recent productivity", "recentProductivity", d.recentProductivity.toFixed(1));
   body.append(kv);
 
-  body.append(heading("Traits"));
+  body.append(heading("Traits", "sec.traits"));
   const tkv = document.createElement("div");
   tkv.className = "kv";
   TRAIT_NAMES.forEach((name, i) => {
@@ -116,7 +120,7 @@ export function renderAntDetail(
 
   body.append(inputsSection(d.inputs));
 
-  body.append(heading("Outputs"));
+  body.append(heading("Outputs", "sec.outputs"));
   body.append(caption("what the brain decides each tick"));
   const okv = document.createElement("div");
   okv.className = "kv";
@@ -131,8 +135,21 @@ export function renderAntDetail(
   body.append(evolutionExplainer());
   // Attach before painting: `paint` sizes the canvas from `canvas.clientWidth`,
   // which is 0 (and forces a 1x1 backing store) until the canvas is in the DOM.
-  body.append(canvas);
+  body.append(nnWrap(canvas, store, net));
   paint(canvas, d, store.state.genome?.params ?? null);
+}
+
+/** The persistent `#nn` canvas wrapped with the fullscreen-expand button. */
+function nnWrap(canvas: HTMLCanvasElement, store: Store, net: Net): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "nn-wrap";
+  const expand = document.createElement("button");
+  expand.className = "nn-expand";
+  expand.textContent = "⤢";
+  expand.title = "fullscreen brain";
+  expand.addEventListener("click", () => openNN(store, net));
+  wrap.append(canvas, expand);
+  return wrap;
 }
 
 /** Signed, 2-decimal formatting for activation values. */
@@ -143,7 +160,7 @@ function signed(v: number): string {
 /** The Inputs block: a whisker grid plus the interpretable body/memory rows. */
 function inputsSection(inputs: Float32Array): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.append(heading("Inputs"));
+  wrap.append(heading("Inputs", "sec.inputs"));
   wrap.append(caption("what the ant senses — hover the network for any single value"));
   wrap.append(whiskerGrid(inputs));
 
@@ -260,9 +277,10 @@ function muted(text: string): HTMLElement {
   return p;
 }
 
-function heading(text: string): HTMLElement {
+function heading(text: string, key?: string): HTMLElement {
   const h = document.createElement("h2");
   h.textContent = text;
+  if (key) h.append(infoDot(key));
   return h;
 }
 

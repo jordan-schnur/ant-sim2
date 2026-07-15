@@ -128,6 +128,11 @@
 
       #inspector .kv { margin-bottom: 2px; }
       #nn { width: 100%; height: 260px; display: block; background: #0a0a0c; border: 1px solid var(--line); border-radius: 5px; margin-top: 8px; }
+      .nn-wrap { position: relative; }
+      .nn-expand { position: absolute; top: 12px; right: 6px; z-index: 2;
+        font-size: 12px; line-height: 1; padding: 2px 5px; background: var(--panel-2);
+        color: var(--text); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+      .nn-expand:hover { color: var(--accent); border-color: var(--accent); }
       .muted { color: var(--dim); }
       .status { font-size: 11px; color: var(--dim); margin-top: 10px; }
       .status.bad { color: #ff7a6b; }

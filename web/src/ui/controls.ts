@@ -20,6 +20,7 @@ import {
 } from "../protocol.js";
 import type { Speed, Store } from "../state.js";
 import { DIVISIONS, TUNABLES, formatValue, toPosition, toValue } from "./tunables.js";
+import { infoDot } from "./explain.js";
 
 /** Slider drags fire faster than the sim needs; ~20 Hz is plenty. */
 const SEND_THROTTLE_MS = 50;
@@ -38,7 +39,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     store.setPaused(true);
     net.send(cmdStep());
   });
-  playRow.append(btnPause, btnStep);
+  playRow.append(btnPause, btnStep, infoDot("ctl.step"));
   root.append(playRow);
 
   const speedRow = div("row");
@@ -59,9 +60,11 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
   for (const key of ["food", "alarm", "scent", "home", "trail"] as const) {
     const { label, input } = checkbox(key, store.state.layers[key], () => store.toggleLayer(key));
     layerBoxes[key] = input;
+    label.append(infoDot(`layer.${key}`));
     root.append(label);
   }
   const labelsBox = checkbox("labels", store.state.labels, () => store.toggleLabels());
+  labelsBox.label.append(infoDot("ctl.labels"));
   root.append(labelsBox.label);
 
   const resRow = div("row");
@@ -71,7 +74,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     net.send(cmdSetPheroRes(next));
     store.notify();
   });
-  resRow.append(btnRes);
+  resRow.append(btnRes, infoDot("ctl.pheroRes"));
   root.append(resRow);
 
   // The tuning sliders are long and rarely touched, so they hide behind a
@@ -136,6 +139,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
   worldRow.append(
     button("save", () => net.send(cmdSave())),
     button("load", () => net.send(cmdLoad())),
+    infoDot("ctl.save"),
   );
   root.append(worldRow);
 
