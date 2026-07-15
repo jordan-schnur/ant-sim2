@@ -52,17 +52,25 @@ function tooltipPlugin(tip: HTMLElement): uPlot.Plugin {
           tip.style.display = "none";
           return;
         }
-        let rows = `<div class="graph-tip-x">tick ${Math.round(tick as number)}</div>`;
+        // Collect visible rows, then sort by value descending so the highest
+        // line reads at the top — the way you scan a chart for its peak.
+        const entries: { v: number; html: string }[] = [];
         for (let s = 1; s < u.series.length; s++) {
           const ser = u.series[s];
           if (ser.show === false) continue;
           const v = u.data[s][idx];
           if (v == null || Number.isNaN(v)) continue;
           const stroke = typeof ser.stroke === "function" ? ser.stroke(u, s) : ser.stroke;
-          rows +=
-            `<div class="graph-tip-row"><span class="graph-tip-swatch" style="background:${stroke ?? "#9aa"}"></span>` +
-            `${ser.label}: <b>${(v as number) >= 100 ? Math.round(v as number) : (v as number).toFixed(2)}</b></div>`;
+          entries.push({
+            v: v as number,
+            html:
+              `<div class="graph-tip-row"><span class="graph-tip-swatch" style="background:${stroke ?? "#9aa"}"></span>` +
+              `${ser.label}: <b>${(v as number) >= 100 ? Math.round(v as number) : (v as number).toFixed(2)}</b></div>`,
+          });
         }
+        entries.sort((a, b) => b.v - a.v);
+        let rows = `<div class="graph-tip-x">tick ${Math.round(tick as number)}</div>`;
+        for (const e of entries) rows += e.html;
         tip.innerHTML = rows;
         tip.style.display = "";
         // Offset from the cursor; flip left near the right edge so it stays in view.
