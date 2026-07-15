@@ -95,6 +95,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     name.textContent = t.label;
     const val = document.createElement("b");
     head.append(name, val);
+    head.append(infoDot(`tune.${t.id}`));
     if (t.hint) head.title = t.hint;
 
     const input = document.createElement("input");

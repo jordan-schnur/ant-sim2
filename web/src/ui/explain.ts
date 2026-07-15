@@ -74,9 +74,33 @@ export const EXPLAIN: Record<string, string> = {
   "sec.traits": "Fixed, heritable body/brain parameters set at birth — never change during life, only across generations.",
   "sec.inputs": "The 60 numbers the ant's network senses this tick.",
   "sec.outputs": "The 8 numbers the network produces each tick: a velocity command, attack, grab, and 4 recurrent memory values.",
-};
 
-// Slider copy (Task 5) is keyed `tune.<id>` and added in that task.
+  // --- tuning sliders (ids mirror CONFIG_FIELDS / tunables.ts) ---
+  "tune.0": "Food-trail evaporation per tick. Nearer 1 = trails linger; the last decimal matters most.",
+  "tune.1": "Alarm evaporation per tick. Nearer 1 = alarm lingers.",
+  "tune.2": "Territory-scent evaporation per tick. Nearer 1 = claims persist.",
+  "tune.3": "Food-trail diffusion: how much pheromone bleeds to neighboring cells each tick.",
+  "tune.4": "Alarm diffusion per tick.",
+  "tune.5": "Scent diffusion per tick.",
+  "tune.6": "Energy tax per unit speed — the cost of moving fast.",
+  "tune.7": "Energy tax per unit vision (×8: the trait ranges to 8). Seeing farther costs upkeep.",
+  "tune.8": "Mutation rate: the chance each brain parameter is perturbed at birth.",
+  "tune.9": "Mutation sigma: how large a perturbation is when it happens.",
+  "tune.10": "Birth cost: food drawn from the store per paid birth. One foraging trip yields ~10.",
+  "tune.11": "Harvest rate: food picked up per tick while standing on food.",
+  "tune.12": "Refuel rate: energy restored per tick at the nest. High values let loiterers drain the store.",
+  "tune.13": "Growth threshold: energy fraction an ant must hold before it spends any on growing.",
+  "tune.14": "Ticks between food-relocation passes: how often depleted patches move elsewhere.",
+  "tune.15": "Attack damage per successful bite.",
+  "tune.16": "Harvest weight in fitness: 0 = deliver-only; nudging it up rewards picking food up at all.",
+  "tune.17": "Homing weight: a fitness credit for carrying food toward home. Helps bootstrap foraging.",
+  "tune.18": "Colony recent-path trail an ant lays each tick.",
+  "tune.19": "Colony-trail evaporation. Fast decay = the trail means 'recent', not 'ever'.",
+  "tune.20": "Colony-trail diffusion per tick.",
+  "tune.21": "Productivity weight in fitness: rewards recent harvest/deliver/kills. 0 = cumulative only.",
+  "tune.22": "Productivity decay: how fast 'recent' fades. 0.99 ≈ a 69-tick half-life.",
+  "tune.23": "How many live food patches the world keeps on the map.",
+};
 
 let pinned: HTMLElement | null = null;
 

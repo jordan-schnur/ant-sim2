@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from "vitest";
 import { EXPLAIN, explainText, infoDot } from "../src/ui/explain.js";
+import { TUNABLES } from "../src/ui/tunables.js";
 
 // Keys that existing panels already rely on via TOOLTIPS; must survive the move.
 const LEGACY_KEYS = [
@@ -48,5 +49,15 @@ describe("infoDot", () => {
     document.body.append(el);
     el.click();
     expect(document.querySelector(".info-pop")).toBeNull();
+  });
+});
+
+describe("slider copy", () => {
+  it("has non-empty copy for every tunable id", () => {
+    for (const t of TUNABLES) {
+      const copy = EXPLAIN[`tune.${t.id}`];
+      expect(copy, `tune.${t.id} (${t.label})`).toBeTruthy();
+      expect(copy.length, `tune.${t.id}`).toBeGreaterThan(12);
+    }
   });
 });
