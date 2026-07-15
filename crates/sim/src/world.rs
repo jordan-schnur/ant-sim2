@@ -28,6 +28,8 @@ pub struct World {
     pub phero: Pheromones,
     pub ants: Ants,
     pub colonies: Vec<ColonyState>,
+    /// Live food patches: where relocation drops and refills bundles.
+    pub patches: Vec<crate::worldgen::Patch>,
     /// Drives births and worldgen only. Ants draw from their own streams.
     pub rng: Pcg32,
     pub next_id: u64,
@@ -42,7 +44,7 @@ pub struct World {
 impl World {
     pub fn new(cfg: &Config, seed: u64) -> Self {
         let mut rng = Pcg32::new(seed, 0xA17);
-        let (grid, colonies) = generate(cfg, seed, &mut rng);
+        let (grid, colonies, patches) = generate(cfg, seed, &mut rng);
 
         let mut ants = Ants::new();
         let mut next_id = 0u64;
@@ -79,6 +81,7 @@ impl World {
             phero: Pheromones::new(cfg),
             ants,
             colonies,
+            patches,
             rng,
             next_id,
             chronicle: Chronicle::new(),
@@ -311,8 +314,36 @@ impl World {
 
         // --- Phase 3: fields. ---
         self.phero.step(&self.cfg);
+        self.maybe_spawn_food();
 
         self.tick_count += 1;
+    }
+
+    /// A patch with less than this fraction of its seed food left is "depleted
+    /// enough" to relocate. Soft on purpose — the operator wanted "depleted enough",
+    /// not fully drained.
+    const DEPLETION_FRAC: f32 = 0.15;
+
+    /// Drops patches that have dwindled below `DEPLETION_FRAC` of their seed
+    /// amount, then tops the live count back up to `food_patch_target`
+    /// elsewhere on the map. Runs at most once every `food_spawn_interval`
+    /// ticks; `< 1` disables relocation entirely.
+    fn maybe_spawn_food(&mut self) {
+        let interval = self.cfg.food_spawn_interval;
+        if interval < 1.0 { return; }
+        if self.tick_count % (interval as u64) != 0 { return; }
+
+        self.patches.retain(|p| {
+            crate::worldgen::patch_live(&self.grid, p) >= Self::DEPLETION_FRAC * p.seed
+        });
+
+        let target = self.cfg.food_patch_target.max(0.0) as usize;
+        while self.patches.len() < target {
+            match crate::worldgen::spawn_patch(&mut self.grid, &self.colonies, &self.cfg, &mut self.rng) {
+                Some(p) => self.patches.push(p),
+                None => break, // no valid location found this pass; try again next interval
+            }
+        }
     }
 
     /// Population thresholds announced as a colony grows.
@@ -534,6 +565,13 @@ impl World {
         }
         for v in &self.grid.food {
             eat(&v.to_bits().to_le_bytes());
+        }
+        eat(&(self.patches.len() as u32).to_le_bytes());
+        for p in &self.patches {
+            eat(&p.cx.to_bits().to_le_bytes());
+            eat(&p.cy.to_bits().to_le_bytes());
+            eat(&p.radius.to_bits().to_le_bytes());
+            eat(&p.seed.to_bits().to_le_bytes());
         }
         h
     }
@@ -931,6 +969,27 @@ mod tests {
         let before = w.state_hash();
         w.tick();
         assert_ne!(before, w.state_hash());
+    }
+
+    #[test]
+    fn a_depleted_patch_is_replaced_elsewhere() {
+        let mut c = Config { width: 64, height: 64, num_colonies: 2, initial_ants_per_colony: 0,
+            food_patch_count: 3, food_spawn_interval: 10.0, food_patch_target: 5.0, ..Config::default() };
+        let mut w = World::new(&c, 1);
+        let target = c.food_patch_target as usize;
+        // Drain every patch to empty, so the next pass must drop and refill them.
+        for p in w.patches.clone() {
+            let (x0, x1) = ((p.cx - p.radius) as i32, (p.cx + p.radius) as i32);
+            let (y0, y1) = ((p.cy - p.radius) as i32, (p.cy + p.radius) as i32);
+            for y in y0..=y1 { for x in x0..=x1 {
+                if w.grid.in_bounds(x, y) { let i = w.grid.idx_clamped(x, y); w.grid.food[i] = 0.0; }
+            }}
+        }
+        // Run past one spawn interval.
+        for _ in 0..(c.food_spawn_interval as u64 + 1) { w.tick(); }
+        assert_eq!(w.patches.len(), target, "world did not refill to target after depletion");
+        let live: f32 = w.grid.food.iter().sum();
+        assert!(live > 0.0, "no fresh food after relocation");
     }
 
     #[test]

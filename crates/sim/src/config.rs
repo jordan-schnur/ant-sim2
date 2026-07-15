@@ -143,7 +143,12 @@ pub struct Config {
     pub food_patch_count: u32,
     pub food_patch_radius: f32,
     pub food_patch_max: f32,
-    pub food_regrow: f32,
+    /// Ticks between food-relocation passes. Each pass drops depleted patches
+    /// and tops the live count back up to `food_patch_target`. `< 1` disables.
+    pub food_spawn_interval: f32,
+    /// Steady-state number of live food patches the world maintains. Stored as
+    /// f32 (the tuning wire is f32-only) and cast to a count at use.
+    pub food_patch_target: f32,
     /// Food harvested per tick by an ant standing on a food cell.
     pub harvest_rate: f32,
 }
@@ -241,7 +246,8 @@ impl Default for Config {
             food_patch_count: 40,
             food_patch_radius: 6.0,
             food_patch_max: 200.0,
-            food_regrow: 0.002,
+            food_spawn_interval: 300.0,
+            food_patch_target: 48.0,
             harvest_rate: 2.0,
         }
     }
