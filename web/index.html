@@ -175,10 +175,20 @@
       .graph-actions button { font-size: 11px; padding: 3px 8px; background: var(--panel-2); color: var(--text);
         border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
       .graph-note { color: var(--dim); font-size: 11px; margin: 8px 0 6px; }
-      .graph-plot { flex: 1; min-height: 0; }
+      .graph-plot { flex: 1; min-height: 0; position: relative; }
       /* uPlot theming to match the dark UI. */
       .graph-plot .u-title, .graph-plot .u-legend { color: var(--text); }
       .graph-plot .u-axis { color: var(--dim); }
+      /* Cursor value tooltip: a floating box positioned relative to .graph-plot. */
+      .graph-tip {
+        position: absolute; z-index: 5; pointer-events: none;
+        background: rgba(20, 22, 28, 0.95); border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 6px; padding: 6px 8px; font-size: 12px; color: #dfe3ea;
+        white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      }
+      .graph-tip-x { font-weight: 600; margin-bottom: 3px; color: #9aa; }
+      .graph-tip-row { display: flex; align-items: center; gap: 5px; }
+      .graph-tip-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 
       .fitness { display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px; }
       .fitness b { font-size: 16px; color: var(--accent); }

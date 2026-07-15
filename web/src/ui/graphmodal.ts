@@ -32,6 +32,49 @@ const METRIC_PALETTE = [
 
 let close: (() => void) | null = null;
 
+/**
+ * A cursor tooltip: on every cursor move uPlot gives us the focused data index;
+ * we read each visible series' value there and render a small floating box. The
+ * legend already shows values, but a box at the point is what the operator asked
+ * for when reading an exact tick off the curve.
+ */
+function tooltipPlugin(tip: HTMLElement): uPlot.Plugin {
+  return {
+    hooks: {
+      setCursor: (u: uPlot) => {
+        const { idx, left, top } = u.cursor;
+        if (idx == null || left == null || top == null || left < 0) {
+          tip.style.display = "none";
+          return;
+        }
+        const tick = u.data[0][idx];
+        if (tick == null) {
+          tip.style.display = "none";
+          return;
+        }
+        let rows = `<div class="graph-tip-x">tick ${Math.round(tick as number)}</div>`;
+        for (let s = 1; s < u.series.length; s++) {
+          const ser = u.series[s];
+          if (ser.show === false) continue;
+          const v = u.data[s][idx];
+          if (v == null || Number.isNaN(v)) continue;
+          const stroke = typeof ser.stroke === "function" ? ser.stroke(u, s) : ser.stroke;
+          rows +=
+            `<div class="graph-tip-row"><span class="graph-tip-swatch" style="background:${stroke ?? "#9aa"}"></span>` +
+            `${ser.label}: <b>${(v as number) >= 100 ? Math.round(v as number) : (v as number).toFixed(2)}</b></div>`;
+        }
+        tip.innerHTML = rows;
+        tip.style.display = "";
+        // Offset from the cursor; flip left near the right edge so it stays in view.
+        const pad = 12;
+        const flip = left > u.over.clientWidth - 160;
+        tip.style.left = `${flip ? left - tip.offsetWidth - pad : left + pad}px`;
+        tip.style.top = `${top + pad}px`;
+      },
+    },
+  };
+}
+
 export function openGraph(store: Store, initialKey: string): void {
   // Singleton: a second open replaces the first.
   if (close) close();
@@ -94,6 +137,11 @@ export function openGraph(store: Store, initialKey: string): void {
 
   const plotHost = document.createElement("div");
   plotHost.className = "graph-plot";
+
+  const tip = document.createElement("div");
+  tip.className = "graph-tip";
+  tip.style.display = "none";
+  plotHost.append(tip);
 
   panel.append(header, note, plotHost);
   document.body.append(backdrop);
@@ -195,6 +243,7 @@ export function openGraph(store: Store, initialKey: string): void {
         },
       ],
       series,
+      plugins: [tooltipPlugin(tip)],
       hooks: {
         // A drag-zoom (setSelect) means the operator picked a window; stop
         // auto-following the live tail until they reset.
