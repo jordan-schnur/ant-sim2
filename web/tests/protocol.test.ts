@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ANT_DETAIL_LEN,
+  BYTES_PER_COLONY,
   CONFIG_FIELDS,
   FLAG_ATTACKING,
   FLAG_CARRYING,
@@ -121,10 +122,9 @@ describe("pheromones", () => {
     expect(f.w).toBe(expected.phero.w);
     expect(f.h).toBe(expected.phero.h);
     expect(f.factor).toBe(expected.phero.factor);
+    // The 8-byte cell de-interleaves into two RGBA textures of equal size.
     expect(f.rgba.byteLength).toBe(f.w * f.h * 4);
-    // The home / exploration trail is a single-channel plane appended after the
-    // RGBA block; decoding it wrong would read past the RGBA span or truncate.
-    expect(f.home.byteLength).toBe(f.w * f.h);
+    expect(f.trail.byteLength).toBe(f.w * f.h * 4);
   });
 
   it("reads the first texel byte-for-byte", () => {
@@ -212,7 +212,8 @@ describe("stats", () => {
     expect(c.store).toBeCloseTo(e.store, 5);
     expect(c.births).toBe(e.births);
     expect(c.deaths).toBe(e.deaths);
-    expect(c.floorSpawns).toBe(e.floorSpawns);
+    expect(c.refounds).toBe(e.refounds);
+    expect(c.distinctGenerations).toBe(e.distinctGenerations);
     expect(c.meanSize).toBeCloseTo(e.meanSize, 5);
     expect(c.meanLineage).toBeCloseTo(e.meanLineage, 5);
     expect(c.deliveredTotal).toBeCloseTo(e.deliveredTotal, 5);
@@ -224,7 +225,7 @@ describe("stats", () => {
     // A mutation test (shift `store` one byte) must fail; it only does if the
     // fixture carries signal in every field.
     const e = expected.stats.first;
-    for (const k of ["store", "births", "deaths", "floorSpawns", "meanSize", "meanLineage", "deliveredTotal"]) {
+    for (const k of ["store", "births", "deaths", "refounds", "meanSize", "meanLineage", "deliveredTotal"]) {
       expect(e[k], `stats fixture field ${k} is zero and proves nothing`).not.toBe(0);
     }
     for (const k of ["age", "lineage", "trait0"]) {
@@ -232,10 +233,10 @@ describe("stats", () => {
     }
   });
 
-  it("is a header plus forty-six bytes per colony", () => {
+  it("is a header plus BYTES_PER_COLONY bytes per colony", () => {
     const f = decode(load("stats.bin"));
     if (f?.kind !== "stats") throw new Error("not a stats frame");
-    expect(load("stats.bin").byteLength).toBe(10 + 46 * f.colonies.length);
+    expect(load("stats.bin").byteLength).toBe(10 + BYTES_PER_COLONY * f.colonies.length);
   });
 });
 
@@ -259,6 +260,7 @@ describe("ant detail", () => {
     expect(f.age).toBe(e.age);
     expect(f.lineage).toBe(e.lineage);
     expect(f.foodHarvested).toBeCloseTo(e.foodHarvested, 5);
+    expect(f.recentProductivity).toBeCloseTo(e.recentProductivity, 5);
     expect(f.traits[0]).toBeCloseTo(e.trait0, 6);
     expect(f.traits[7]).toBeCloseTo(e.trait7, 3);
     expect(f.inputs[0]).toBeCloseTo(e.input0, 6);
@@ -291,7 +293,7 @@ describe("ant detail", () => {
   it("carries the full activation vector for every layer", () => {
     const f = decode(load("detail.bin"));
     if (f?.kind !== "detail") throw new Error("not a detail frame");
-    expect(f.inputs.length).toBe(55);
+    expect(f.inputs.length).toBe(60);
     expect(f.h1.length).toBe(16);
     expect(f.h2.length).toBe(16);
     expect(f.outputs.length).toBe(8);

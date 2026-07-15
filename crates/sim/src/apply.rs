@@ -151,6 +151,9 @@ pub fn apply_food(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyCtx
         let taken = ctx.grid.harvest(c, want);
         ants.carrying[i] += taken;
         ants.food_harvested[i] += taken;
+        // Mirrors the cumulative counter above, but decays each tick in
+        // apply_metabolism so fitness can weight recent output, not lifetime.
+        ants.recent_productivity[i] += taken;
         if taken > 0.0 && on_trail {
             if let Some(f) = ants.followed_trail.get_mut(i) {
                 *f = true;
@@ -177,6 +180,9 @@ pub fn apply_nest(i: usize, ants: &mut Ants, ctx: &mut ApplyCtx) {
         colony.store += load;
         colony.delivered_total += load;
         ants.food_delivered[i] += load;
+        // Mirrors the cumulative counter above, but decays each tick in
+        // apply_metabolism so fitness can weight recent output, not lifetime.
+        ants.recent_productivity[i] += load;
         ants.carrying[i] = 0.0;
     }
 
@@ -206,6 +212,10 @@ pub fn deposit_passive(cell: usize, carrying: f32, colony: u8, ctx: &mut ApplyCt
     }
     ctx.phero
         .deposit_scent(cell, ctx.cfg.ant_scent_emission, colony);
+    // Dedicated fast-fading colony trail: "a colony-mate was here recently",
+    // separate from the persistent nest beacon above. Nests never lay this.
+    ctx.phero
+        .deposit_trail(cell, ctx.cfg.trail_emission, colony);
 }
 
 /// An ant may not shrink below this, however starved.
@@ -259,6 +269,9 @@ pub fn apply_combat(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyC
         let scavenged = ctx.cfg.kill_energy_frac * ctx.cfg.max_energy_per_size * ants.size[v];
         let max_e = ants.genome[i].max_energy(ctx.cfg, ants.size[i]);
         ants.energy[i] = (ants.energy[i] + scavenged).min(max_e);
+        // Credited to the attacker (i), not the victim (v): a kill is
+        // productive output for whoever landed the killing blow.
+        ants.recent_productivity[i] += scavenged;
         if let Some(f) = ants.killed.get_mut(i) {
             *f = true;
         }
@@ -269,6 +282,10 @@ pub fn apply_combat(i: usize, intent: &Intent, ants: &mut Ants, ctx: &mut ApplyC
 /// do and what it costs to be.
 pub fn apply_metabolism(i: usize, ants: &mut Ants, cfg: &Config) {
     ants.energy[i] -= ants.genome[i].upkeep(cfg, ants.size[i]);
+
+    // Recent-productivity EMA bleeds toward zero every tick; harvest/deliver/
+    // kill re-inflate it elsewhere in the apply phase.
+    ants.recent_productivity[i] *= cfg.productivity_decay;
 
     let max_e = ants.genome[i].max_energy(cfg, ants.size[i]);
     let max_size = ants.genome[i].traits.max_size;
@@ -312,7 +329,12 @@ pub fn sweep_deaths(ants: &mut Ants, ctx: &mut ApplyCtx) {
 
         let colony = &mut ctx.colonies[ants.colony[i] as usize];
         colony.record_death(
-            ctx.cfg.fitness(ants.food_delivered[i], ants.food_harvested[i], ants.food_homing[i]),
+            ctx.cfg.fitness(
+                ants.food_delivered[i],
+                ants.food_harvested[i],
+                ants.food_homing[i],
+                ants.recent_productivity[i],
+            ),
             ants.lineage[i],
             &ants.genome[i],
             ctx.cfg.hall_of_fame_size,
@@ -566,6 +588,20 @@ mod tests {
     }
 
     #[test]
+    fn harvesting_raises_recent_productivity() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        f.grid.food[c] = 100.0;
+        let i = Intent {
+            grab: true,
+            ..intent()
+        };
+        let (ants, mut ctx) = f.split();
+        apply_food(0, &i, ants, &mut ctx);
+        assert!(f.ants.recent_productivity[0] > 0.0, "a harvest must register");
+    }
+
+    #[test]
     fn grabbing_on_a_trail_cell_flags_a_trail_follow() {
         let mut f = fixture(&[(8.5, 8.5, 1)]);
         let c = f.grid.idx(8, 8);
@@ -722,8 +758,17 @@ mod tests {
         let mut f = fixture(&[(8.5, 8.5, 1)]);
         let c = f.grid.idx(8, 8);
         deposit_passive(c, 0.0, 1, &mut f.ctx());
-        assert_eq!(f.phero.scent[c], f.cfg.ant_scent_emission);
-        assert_eq!(f.phero.owner[c], 1);
+        assert_eq!(f.phero.scent.mag[c], f.cfg.ant_scent_emission);
+        assert_eq!(f.phero.scent.owner[c], 1);
+    }
+
+    #[test]
+    fn every_ant_lays_colony_trail_unconditionally() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        let c = f.grid.idx(8, 8);
+        deposit_passive(c, 0.0, 1, &mut f.ctx());
+        assert_eq!(f.phero.trail.mag[c], f.cfg.trail_emission);
+        assert_eq!(f.phero.trail.owner[c], 1);
     }
 
     #[test]
@@ -850,6 +895,26 @@ mod tests {
     }
 
     #[test]
+    fn a_kill_registers_recent_productivity() {
+        let mut f = fixture(&[(8.5, 8.5, 1), (9.5, 8.5, 2)]);
+        f.ants.energy[0] = 10.0;
+        f.ants.energy[1] = 0.01; // one hit from death
+        f.ants.genome[0].traits.strength = 1.0;
+        f.rebuild();
+        let i = Intent {
+            attack: true,
+            ..intent()
+        };
+        let (ants, mut ctx) = f.split();
+        apply_combat(0, &i, ants, &mut ctx);
+        let scavenged = f.cfg.kill_energy_frac * f.cfg.max_energy_per_size * f.ants.size[1];
+        assert!(
+            (f.ants.recent_productivity[0] - scavenged).abs() < 1e-3,
+            "killer's recent_productivity should rise by the scavenged amount"
+        );
+    }
+
+    #[test]
     fn a_killer_scavenges_energy_from_the_body() {
         let mut f = fixture(&[(8.5, 8.5, 1), (9.5, 8.5, 2)]);
         f.ants.energy[0] = 10.0;
@@ -950,6 +1015,17 @@ mod tests {
         let (ants, mut ctx) = f.split();
         apply_combat(0, &i, ants, &mut ctx);
         assert_eq!(f.ants.energy[1], before);
+    }
+
+    #[test]
+    fn an_idle_tick_decays_recent_productivity() {
+        let mut f = fixture(&[(8.5, 8.5, 1)]);
+        f.ants.recent_productivity[0] = 100.0;
+        apply_metabolism(0, &mut f.ants, &f.cfg);
+        assert!(f.ants.recent_productivity[0] < 100.0, "decay must shrink it");
+        assert!(
+            (f.ants.recent_productivity[0] - 100.0 * f.cfg.productivity_decay).abs() < 1e-3
+        );
     }
 
     #[test]

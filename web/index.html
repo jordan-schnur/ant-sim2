@@ -150,6 +150,46 @@
       .tab { flex: 1; }
       .tabpane { min-width: 0; }
 
+      /* Stats tab: stacked time-series charts. */
+      .stats-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 10px; }
+      .stats-legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); }
+      .stats-legend-swatch { width: 16px; height: 16px; display: block; }
+      .stats-legend-line { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+      .stats-chart { margin-bottom: 12px; cursor: pointer; }
+      .stats-chart:hover .stats-chart-title { color: var(--accent); }
+      .stats-chart-title { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+      .stats-canvas { width: 100%; height: 84px; display: block; border-radius: 3px; }
+
+      /* Expanded interactive graph (uPlot in a modal). */
+      .graph-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 50;
+        display: flex; align-items: center; justify-content: center; }
+      .graph-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+        width: min(1100px, 92vw); height: min(760px, 88vh); display: flex; flex-direction: column;
+        padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+      .graph-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+      .graph-metrics { display: flex; flex-wrap: wrap; gap: 5px; }
+      .graph-metric-btn { font-size: 11px; padding: 3px 8px; background: var(--panel-2); color: var(--dim);
+        border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+      .graph-metric-btn.on { background: var(--accent); color: #06121f; border-color: var(--accent); font-weight: 600; }
+      .graph-actions { display: flex; gap: 6px; flex-shrink: 0; }
+      .graph-actions button { font-size: 11px; padding: 3px 8px; background: var(--panel-2); color: var(--text);
+        border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+      .graph-note { color: var(--dim); font-size: 11px; margin: 8px 0 6px; }
+      .graph-plot { flex: 1; min-height: 0; position: relative; }
+      /* uPlot theming to match the dark UI. */
+      .graph-plot .u-title, .graph-plot .u-legend { color: var(--text); }
+      .graph-plot .u-axis { color: var(--dim); }
+      /* Cursor value tooltip: a floating box positioned relative to .graph-plot. */
+      .graph-tip {
+        position: absolute; z-index: 5; pointer-events: none;
+        background: rgba(20, 22, 28, 0.95); border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 6px; padding: 6px 8px; font-size: 12px; color: #dfe3ea;
+        white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      }
+      .graph-tip-x { font-weight: 600; margin-bottom: 3px; color: #9aa; }
+      .graph-tip-row { display: flex; align-items: center; gap: 5px; }
+      .graph-tip-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
       .fitness { display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px; }
       .fitness b { font-size: 16px; color: var(--accent); }
       .fitness-brk { font-size: 11px; margin-bottom: 8px; }
@@ -160,7 +200,7 @@
       .caption { color: var(--dim); font-size: 11px; margin: 2px 0 6px; }
 
       /* Whisker input grid: 5 directions x 6 channels, tinted by activation. */
-      .whisker-grid { display: grid; grid-template-columns: auto repeat(6, 1fr); gap: 2px; margin: 4px 0 10px; font-size: 10px; }
+      .whisker-grid { display: grid; grid-template-columns: auto repeat(7, 1fr); gap: 2px; margin: 4px 0 10px; font-size: 10px; }
       .whisker-grid > div { text-align: center; padding: 2px 1px; border-radius: 2px; overflow: hidden; }
       .wg-head { color: var(--dim); font-weight: 500; }
       .wg-dir { color: var(--dim); text-align: right; padding-right: 5px; white-space: nowrap; }

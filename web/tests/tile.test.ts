@@ -5,7 +5,7 @@ import { tileReadout } from "../src/tile.js";
 function frames() {
   const terrain = new Uint8Array(2 * 2 * 4);
   const phero = new Uint8Array(2 * 2 * 4);
-  const home = new Uint8Array(2 * 2); // the single-channel home-trail plane
+  const trail = new Uint8Array(2 * 2 * 4); // R colony trail, G owner, B home trail, A reserved
   const t = (tx: number, ty: number) => (ty * 2 + tx) * 4;
   terrain[t(1, 0) + 0] = 200; // food
   terrain[t(1, 0) + 1] = 10;  // stone
@@ -14,9 +14,9 @@ function frames() {
   phero[t(1, 0) + 1] = 5;     // alarm
   phero[t(1, 0) + 2] = 90;    // scent
   phero[t(1, 0) + 3] = 255;   // no owner
-  home[0 * 2 + 1] = 77;       // home trail at texel (1,0): py*w + px = 0*2 + 1
+  trail[t(1, 0) + 2] = 77;    // home trail (B channel) at texel (1,0)
   const T = { kind: "terrain", tick: 1, w: 2, h: 2, factor: 4, rgba: terrain } as const;
-  const P = { kind: "phero", tick: 1, w: 2, h: 2, factor: 4, rgba: phero, home } as const;
+  const P = { kind: "phero", tick: 1, w: 2, h: 2, factor: 4, rgba: phero, trail } as const;
   return { T, P };
 }
 

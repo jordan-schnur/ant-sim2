@@ -41,8 +41,6 @@ export function tileReadout(
   const px = Math.min(phero.w - 1, Math.floor(cx / phero.factor));
   const py = Math.min(phero.h - 1, Math.floor(cy / phero.factor));
   const pi = (py * phero.w + px) * 4;
-  // The home trail is a separate single-channel plane, one byte per texel.
-  const hi = py * phero.w + px;
 
   const nest = terrain.rgba[ti + 2];
   const phOwner = phero.rgba[pi + 3];
@@ -55,7 +53,8 @@ export function tileReadout(
     phFood: phero.rgba[pi],
     phAlarm: phero.rgba[pi + 1],
     phScent: phero.rgba[pi + 2],
-    phHome: phero.home[hi],
+    // The home/exploration trail rides in the trail texture's B channel.
+    phHome: phero.trail[pi + 2],
     phOwner: phOwner === NONE ? null : phOwner,
   };
 }

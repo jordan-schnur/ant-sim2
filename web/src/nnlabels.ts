@@ -12,21 +12,35 @@ import { N_INPUTS, N_OUTPUTS } from "./protocol.js";
 // --- Whiskers: 5 directions x 7 channels = the first 35 inputs. ---
 // Angles in sense.rs are [-1.2, -0.6, 0, 0.6, 1.2] rad, relative to heading.
 export const WHISKER_DIRS = ["far left", "left", "ahead", "right", "far right"] as const;
-/** One channel name per whisker slot, in sense.rs's CH_* order. */
+/** One channel name per whisker slot, in sense.rs's CH_* order. `food trail`
+ *  (index 1) is the food pheromone; `own trail` (index 7) is the colony
+ *  recent-path signal, a distinct field from `home trail` (index 6), the
+ *  shared ownerless exploration trail. */
 export const CHANNELS = [
   "food",
-  "trail",
+  "food trail",
   "alarm",
   "own scent",
   "foe scent",
   "wall",
   "home trail",
+  "own trail",
 ] as const;
 /** Short forms for the compact whisker grid header. */
-export const CHANNEL_ABBR = ["food", "trail", "alarm", "mine", "foe", "wall", "home"] as const;
+export const CHANNEL_ABBR = [
+  "food",
+  "ftrl",
+  "alarm",
+  "mine",
+  "foe",
+  "wall",
+  "home",
+  "trail",
+] as const;
 
 const WHISKERS = WHISKER_DIRS.length; // 5
-const CH = CHANNELS.length; // 7
+const CH = CHANNELS.length; // 8
+const WHISKER_INPUTS = WHISKERS * CH; // 40
 
 /** A contiguous run of inputs that means one thing, for grouped display. */
 export interface InputGroup {
@@ -35,18 +49,27 @@ export interface InputGroup {
   len: number;
 }
 
-// Offsets copied verbatim from sense.rs. IN_WHISKERS=0, IN_UNDERFOOT=35,
-// IN_COUNTS=39, IN_PROPRIO=41, IN_BIAS=45, IN_MEMORY=46, IN_HOME=50,
-// IN_HEADING=53.
+// Offsets derived from sense.rs's layout: after the whisker block come
+// IN_UNDERFOOT (4), IN_COUNTS (2), IN_PROPRIO (4), IN_BIAS (1), IN_MEMORY (4),
+// IN_HOME (3), IN_HEADING (2). Deriving from WHISKER_INPUTS keeps them correct
+// as CH grows.
+const UNDERFOOT_START = WHISKER_INPUTS; // 40
+const CROWD_START = UNDERFOOT_START + 4; // 44
+const BODY_START = CROWD_START + 2; // 46
+const BIAS_START = BODY_START + 4; // 50
+const MEMORY_START = BIAS_START + 1; // 51
+const HOME_START = MEMORY_START + 4; // 55
+const FACING_START = HOME_START + 3; // 58
+
 export const INPUT_GROUPS: InputGroup[] = [
-  { name: "whiskers", start: 0, len: WHISKERS * CH }, // 0..35
-  { name: "underfoot", start: 35, len: 4 },
-  { name: "crowd", start: 39, len: 2 },
-  { name: "body", start: 41, len: 4 },
-  { name: "bias", start: 45, len: 1 },
-  { name: "memory", start: 46, len: 4 },
-  { name: "home", start: 50, len: 3 }, // world-frame unit x, unit y, distance
-  { name: "facing", start: 53, len: 2 }, // sin, cos of the ant's own heading
+  { name: "whiskers", start: 0, len: WHISKER_INPUTS },
+  { name: "underfoot", start: UNDERFOOT_START, len: 4 },
+  { name: "crowd", start: CROWD_START, len: 2 },
+  { name: "body", start: BODY_START, len: 4 },
+  { name: "bias", start: BIAS_START, len: 1 },
+  { name: "memory", start: MEMORY_START, len: 4 },
+  { name: "home", start: HOME_START, len: 3 }, // world-frame unit x, unit y, distance
+  { name: "facing", start: FACING_START, len: 2 }, // sin, cos of the ant's heading
 ];
 
 // Non-whisker input names, index-aligned to their group starts.
@@ -57,19 +80,18 @@ const HOME = ["home vector x", "home vector y", "home distance"];
 
 /** Full human label for input index `i` (0..N_INPUTS). */
 export function inputLabel(i: number): string {
-  const whiskersEnd = WHISKERS * CH; // 35
-  if (i < whiskersEnd) {
+  if (i < WHISKER_INPUTS) {
     const dir = WHISKER_DIRS[Math.floor(i / CH)];
     const ch = CHANNELS[i % CH];
     return `whisker ${dir} · ${ch}`;
   }
-  if (i < 39) return UNDERFOOT[i - 35];
-  if (i < 41) return CROWD[i - 39];
-  if (i < 45) return BODY[i - 41];
-  if (i === 45) return "bias";
-  if (i < 50) return `memory ${i - 46}`;
-  if (i < 53) return HOME[i - 50];
-  return i === 53 ? "facing (sin)" : "facing (cos)";
+  if (i < CROWD_START) return UNDERFOOT[i - UNDERFOOT_START];
+  if (i < BODY_START) return CROWD[i - CROWD_START];
+  if (i < BIAS_START) return BODY[i - BODY_START];
+  if (i === BIAS_START) return "bias";
+  if (i < HOME_START) return `memory ${i - MEMORY_START}`;
+  if (i < FACING_START) return HOME[i - HOME_START];
+  return i === FACING_START ? "facing (sin)" : "facing (cos)";
 }
 
 export const OUTPUT_LABELS = [

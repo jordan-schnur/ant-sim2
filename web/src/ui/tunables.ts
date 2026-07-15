@@ -39,10 +39,16 @@ export const TUNABLES: Tunable[] = [
   { id: 11, label: "harvest rate", min: 0.1, max: 10, scale: "linear" },
   { id: 12, label: "refuel rate", min: 0, max: 10, scale: "linear", hint: "loiterers drain the store" },
   { id: 13, label: "growth threshold", min: 0.01, max: 1, scale: "linear", hint: "growing costs a forager" },
-  { id: 14, label: "food regrow", min: 0, max: 0.02, scale: "linear" },
+  { id: 14, label: "food spawn interval", min: 20, max: 2000, scale: "linear", hint: "ticks between food relocation passes" },
   { id: 15, label: "attack damage", min: 0, max: 20, scale: "linear" },
   { id: 16, label: "harvest weight", min: 0, max: 0.2, scale: "linear", hint: "0 = deliver-only; nudge toward foraging" },
   { id: 17, label: "homing weight", min: 0, max: 1, scale: "linear", hint: "reward carrying food home; helps bootstrap" },
+  { id: 18, label: "trail emission", min: 0, max: 5, scale: "linear", hint: "colony recent-path signal ants lay each tick" },
+  { id: 19, label: "trail evap", min: 0.9, max: 0.9999, scale: "decay", hint: "fast decay = trail means recent" },
+  { id: 20, label: "trail diffuse", min: 0, max: 0.4, scale: "linear" },
+  { id: 21, label: "productivity weight", min: 0, max: 1, scale: "linear", hint: "reward recent harvest/deliver/kills; 0 = off (cumulative only)" },
+  { id: 22, label: "productivity decay", min: 0.9, max: 0.9999, scale: "decay", hint: "how fast 'recent' fades; 0.99 = ~69-tick half-life" },
+  { id: 23, label: "food patch target", min: 1, max: 80, scale: "linear", hint: "how many live food patches the world maintains" },
 ];
 
 /** Slider position [0,1] -> config value. */

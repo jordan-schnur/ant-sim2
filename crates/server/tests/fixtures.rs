@@ -65,12 +65,13 @@ fn fixture_world() -> World {
     w.ants.lineage[0] = 5;
     w.ants.food_delivered[0] = 9.75;
     w.ants.food_harvested[0] = 6.5;
+    w.ants.recent_productivity[0] = 4.25;
     w.ants.age[0] = 37;
 
     w.colonies[0].store = 123.5;
     w.colonies[0].births = 11;
     w.colonies[0].deaths = 7;
-    w.colonies[0].floor_spawns = 3;
+    w.colonies[0].refounds = 3;
     w.colonies[0].delivered_total = 45.25;
 
     // The ant moved, so its sensed neighbour counts must be recomputed against
@@ -86,9 +87,10 @@ fn brightest_scent_texel(w: &World) -> (usize, u8, u8) {
     let mut b = Vec::new();
     encode_phero(&mut b, w, 2);
     let texels = &b[14..];
-    let n = texels.len() / 4;
-    let best = (0..n).max_by_key(|i| texels[4 * i + 2]).unwrap();
-    (best, texels[4 * best + 2], texels[4 * best + 3])
+    // Eight bytes per cell; the scent texel is the first four.
+    let n = texels.len() / 8;
+    let best = (0..n).max_by_key(|i| texels[8 * i + 2]).unwrap();
+    (best, texels[8 * best + 2], texels[8 * best + 3])
 }
 
 #[test]
@@ -106,8 +108,7 @@ fn emit_protocol_fixtures() {
 
     encode_phero(&mut b, &w, 2);
     write("phero.bin", &b);
-    // RGBA block plus the trailing R8 home-trail plane.
-    assert_eq!(b.len(), 14 + 16 * 16 * 4 + 16 * 16);
+    assert_eq!(b.len(), 14 + 16 * 16 * 8);
 
     encode_terrain(&mut b, &w, 2);
     write("terrain.bin", &b);
@@ -135,6 +136,7 @@ fn emit_protocol_fixtures() {
             carrying: w.ants.carrying[0],
             food_delivered: w.ants.food_delivered[0],
             food_harvested: w.ants.food_harvested[0],
+            recent_productivity: w.ants.recent_productivity[0],
             age: w.ants.age[0],
             lineage: w.ants.lineage[0],
             traits,
@@ -183,8 +185,8 @@ fn emit_protocol_fixtures() {
             "  \"ants\": {{ \"tick\": {}, \"count\": {}, \"first\": {{ \"x\": {}, \"y\": {}, \"colony\": {}, \"size\": {}, \"flags\": {} }} }},\n",
             "  \"phero\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"firstTexel\": [{}, {}, {}, {}], \"brightestScent\": {{ \"texel\": {}, \"value\": {}, \"owner\": {} }} }},\n",
             "  \"terrain\": {{ \"w\": 16, \"h\": 16, \"factor\": 2, \"stoneTexels\": {}, \"foodTexels\": {}, \"nestTexels\": {}, \"maxFood\": {}, \"maxStone\": {} }},\n",
-            "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"floorSpawns\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {} }} }},\n",
-            "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"foodHarvested\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
+            "  \"stats\": {{ \"count\": {}, \"first\": {{ \"id\": {}, \"population\": {}, \"store\": {}, \"births\": {}, \"deaths\": {}, \"refounds\": {}, \"meanSize\": {}, \"meanLineage\": {}, \"deliveredTotal\": {}, \"distinctGenerations\": {} }} }},\n",
+            "  \"detail\": {{ \"id\": {}, \"colony\": {}, \"alive\": true, \"x\": {}, \"y\": {}, \"age\": {}, \"lineage\": {}, \"foodHarvested\": {}, \"recentProductivity\": {}, \"trait0\": {}, \"trait7\": {}, \"input0\": {}, \"input43\": {}, \"h1_0\": {}, \"h1_15\": {}, \"h2_0\": {}, \"h2_15\": {}, \"output0\": {}, \"output7\": {} }},\n",
             "  \"genome\": {{ \"id\": 42, \"nParams\": {}, \"param0\": {} }},\n",
             "  \"config\": {{ \"count\": {}, \"field0\": {} }},\n",
             "  \"colonyMeta\": {{ \"count\": {}, \"name0\": \"{}\" }},\n",
@@ -220,10 +222,11 @@ fn emit_protocol_fixtures() {
         stats[0].store,
         stats[0].births,
         stats[0].deaths,
-        stats[0].floor_spawns,
+        stats[0].refounds,
         stats[0].mean_size,
         stats[0].mean_lineage,
         stats[0].delivered_total,
+        stats[0].distinct_generations,
         w.ants.id[0],
         w.ants.colony[0],
         w.ants.x[0],
@@ -231,6 +234,7 @@ fn emit_protocol_fixtures() {
         w.ants.age[0],
         w.ants.lineage[0],
         w.ants.food_harvested[0],
+        w.ants.recent_productivity[0],
         traits[0],
         traits[7],
         act.inputs[0],
@@ -286,7 +290,7 @@ fn emit_protocol_fixtures() {
     for (name, v) in [
         ("births", s.births),
         ("deaths", s.deaths),
-        ("floor_spawns", s.floor_spawns),
+        ("refounds", s.refounds),
     ] {
         assert!(v != 0, "stats fixture field `{name}` is zero");
     }
@@ -300,6 +304,10 @@ fn emit_protocol_fixtures() {
     assert_ne!(w.ants.lineage[0], 0, "detail fixture lineage is zero");
     assert_ne!(w.ants.age[0], 0, "detail fixture age is zero");
     assert_ne!(traits[0], 0.0, "detail fixture trait0 is zero");
+    assert_ne!(
+        w.ants.recent_productivity[0], 0.0,
+        "detail fixture recent_productivity is zero"
+    );
 
     // The activation layers must be mutually distinguishable, or a decoder that
     // reads `h2` at `h1`'s offset finds equally plausible tanh values and the
@@ -324,6 +332,7 @@ fn emit_protocol_fixtures() {
         w.ants.heading[0],
         w.ants.food_delivered[0],
         w.ants.food_harvested[0],
+        w.ants.recent_productivity[0],
     ];
     for i in 0..scalars.len() {
         for j in (i + 1)..scalars.len() {

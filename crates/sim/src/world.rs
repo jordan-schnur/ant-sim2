@@ -28,6 +28,8 @@ pub struct World {
     pub phero: Pheromones,
     pub ants: Ants,
     pub colonies: Vec<ColonyState>,
+    /// Live food patches: where relocation drops and refills bundles.
+    pub patches: Vec<crate::worldgen::Patch>,
     /// Drives births and worldgen only. Ants draw from their own streams.
     pub rng: Pcg32,
     pub next_id: u64,
@@ -42,7 +44,7 @@ pub struct World {
 impl World {
     pub fn new(cfg: &Config, seed: u64) -> Self {
         let mut rng = Pcg32::new(seed, 0xA17);
-        let (grid, colonies) = generate(cfg, seed, &mut rng);
+        let (grid, colonies, patches) = generate(cfg, seed, &mut rng);
 
         let mut ants = Ants::new();
         let mut next_id = 0u64;
@@ -79,6 +81,7 @@ impl World {
             phero: Pheromones::new(cfg),
             ants,
             colonies,
+            patches,
             rng,
             next_id,
             chronicle: Chronicle::new(),
@@ -313,9 +316,39 @@ impl World {
 
         // --- Phase 3: fields. ---
         self.phero.step(&self.cfg);
-        self.grid.regrow(self.cfg.food_regrow);
+        self.maybe_spawn_food();
 
         self.tick_count += 1;
+    }
+
+    /// A patch with less than this fraction of its seed food left is "depleted
+    /// enough" to relocate. Soft on purpose — the operator wanted "depleted enough",
+    /// not fully drained.
+    const DEPLETION_FRAC: f32 = 0.15;
+
+    /// Drops patches that have dwindled below `DEPLETION_FRAC` of their seed
+    /// amount, then tops the live count back up to `food_patch_target`
+    /// elsewhere on the map. Runs at most once every `food_spawn_interval`
+    /// ticks; `< 1` disables relocation entirely.
+    fn maybe_spawn_food(&mut self) {
+        let interval = self.cfg.food_spawn_interval;
+        // `!(>= 1.0)` rather than `< 1.0` so a non-finite override (e.g. a
+        // headless `--set food_spawn_interval=NaN`) disables relocation instead
+        // of reaching `NaN as u64 == 0` and panicking on `tick_count % 0`.
+        if !(interval >= 1.0) { return; }
+        if self.tick_count % (interval as u64) != 0 { return; }
+
+        self.patches.retain(|p| {
+            crate::worldgen::patch_live(&self.grid, p) >= Self::DEPLETION_FRAC * p.seed
+        });
+
+        let target = self.cfg.food_patch_target.max(0.0) as usize;
+        while self.patches.len() < target {
+            match crate::worldgen::spawn_patch(&mut self.grid, &self.colonies, &self.cfg, &mut self.rng) {
+                Some(p) => self.patches.push(p),
+                None => break, // no valid location found this pass; try again next interval
+            }
+        }
     }
 
     /// Population thresholds announced as a colony grows.
@@ -517,6 +550,7 @@ impl World {
             eat(&self.ants.food_delivered[i].to_bits().to_le_bytes());
             eat(&self.ants.food_harvested[i].to_bits().to_le_bytes());
             eat(&self.ants.food_homing[i].to_bits().to_le_bytes());
+            eat(&self.ants.recent_productivity[i].to_bits().to_le_bytes());
         }
         for c in &self.colonies {
             eat(&c.store.to_bits().to_le_bytes());
@@ -531,8 +565,23 @@ impl World {
         for v in &self.phero.home {
             eat(&v.to_bits().to_le_bytes());
         }
+        // The owned fields carry magnitude *and* ownership; a divergence in
+        // either must change the hash.
+        for f in [&self.phero.scent, &self.phero.trail] {
+            for v in &f.mag {
+                eat(&v.to_bits().to_le_bytes());
+            }
+            eat(&f.owner);
+        }
         for v in &self.grid.food {
             eat(&v.to_bits().to_le_bytes());
+        }
+        eat(&(self.patches.len() as u32).to_le_bytes());
+        for p in &self.patches {
+            eat(&p.cx.to_bits().to_le_bytes());
+            eat(&p.cy.to_bits().to_le_bytes());
+            eat(&p.radius.to_bits().to_le_bytes());
+            eat(&p.seed.to_bits().to_le_bytes());
         }
         h
     }
@@ -673,9 +722,32 @@ mod tests {
         w.tick();
         for c in &w.colonies {
             let t = c.nest_tiles[0];
-            assert!(w.phero.scent[t] > 0.0);
-            assert_eq!(w.phero.owner[t], c.id);
+            assert!(w.phero.scent.mag[t] > 0.0);
+            assert_eq!(w.phero.scent.owner[t], c.id);
         }
+    }
+
+    #[test]
+    fn nests_never_lay_the_trail_field() {
+        // The trail is un-fused from the beacon: only ants deposit it, never
+        // nests. Kill every ant, then tick: the phase-2 deposit loop runs over
+        // an empty population, the refounded cohort has not acted yet, so the
+        // *only* field writer this tick is the nest beacon. It must touch scent
+        // and leave the trail field completely empty.
+        use crate::pheromone::NO_OWNER;
+        let mut w = World::new(&small(), 1);
+        w.ants.alive.iter_mut().for_each(|a| *a = false);
+        w.ants.retain_alive();
+        assert_eq!(w.ants.len(), 0);
+        w.tick();
+        assert!(
+            w.phero.trail.owner.iter().all(|&o| o == NO_OWNER),
+            "the nest beacon must never write the trail field"
+        );
+        assert!(
+            w.phero.scent.owner.iter().any(|&o| o != NO_OWNER),
+            "the nest beacon should have laid scent"
+        );
     }
 
     #[test]
@@ -703,23 +775,17 @@ mod tests {
     }
 
     #[test]
-    fn no_colony_ever_goes_permanently_extinct() {
-        // The floor is rate-limited, so a colony CAN dip below it — even to
-        // zero — for up to `floor_respawn_interval` ticks. What it may not do
-        // is stay there.
+    fn a_collapsed_colony_is_refounded_the_same_tick() {
+        // The extinction floor is retired. A colony can hit zero, but refounding
+        // reseeds it the same tick it dies — so at the end of *every* tick no
+        // colony is ever observed empty. This is the "world stays alive" property.
         let mut w = World::new(&small(), 7);
-        let mut ticks_at_zero = vec![0u64; w.cfg.num_colonies as usize];
         for _ in 0..5000 {
             w.tick();
             for id in 0..w.cfg.num_colonies {
-                if w.ants.population(id) == 0 {
-                    ticks_at_zero[id as usize] += 1;
-                } else {
-                    ticks_at_zero[id as usize] = 0;
-                }
                 assert!(
-                    ticks_at_zero[id as usize] <= w.cfg.floor_respawn_interval + 1,
-                    "colony {id} stayed extinct past the respawn interval"
+                    w.ants.population(id) > 0,
+                    "colony {id} was left extinct after the tick"
                 );
             }
         }
@@ -913,5 +979,53 @@ mod tests {
         let before = w.state_hash();
         w.tick();
         assert_ne!(before, w.state_hash());
+    }
+
+    #[test]
+    fn a_depleted_patch_is_replaced_elsewhere() {
+        let mut c = Config { width: 64, height: 64, num_colonies: 2, initial_ants_per_colony: 0,
+            food_patch_count: 3, food_spawn_interval: 10.0, food_patch_target: 5.0, ..Config::default() };
+        let mut w = World::new(&c, 1);
+        let target = c.food_patch_target as usize;
+        // Drain every patch to empty, so the next pass must drop and refill them.
+        for p in w.patches.clone() {
+            let (x0, x1) = ((p.cx - p.radius) as i32, (p.cx + p.radius) as i32);
+            let (y0, y1) = ((p.cy - p.radius) as i32, (p.cy + p.radius) as i32);
+            for y in y0..=y1 { for x in x0..=x1 {
+                if w.grid.in_bounds(x, y) { let i = w.grid.idx_clamped(x, y); w.grid.food[i] = 0.0; }
+            }}
+        }
+        // Run past one spawn interval.
+        for _ in 0..(c.food_spawn_interval as u64 + 1) { w.tick(); }
+        assert_eq!(w.patches.len(), target, "world did not refill to target after depletion");
+        let live: f32 = w.grid.food.iter().sum();
+        assert!(live > 0.0, "no fresh food after relocation");
+    }
+
+    #[test]
+    fn a_non_finite_spawn_interval_disables_relocation_without_panicking() {
+        // A headless `--set food_spawn_interval=NaN` reaches the sim unclamped;
+        // the guard must treat it as "disabled", not divide by `NaN as u64 == 0`.
+        let c = Config { width: 64, height: 64, num_colonies: 2, initial_ants_per_colony: 0,
+            food_patch_count: 2, food_spawn_interval: f32::NAN, food_patch_target: 5.0,
+            ..Config::default() };
+        let mut w = World::new(&c, 1);
+        let genesis = w.patches.len();
+        assert!(genesis > 0, "expected genesis patches to exist");
+        for _ in 0..5 { w.tick(); } // must not panic
+        // Relocation is disabled, so the genesis patch set is untouched — not
+        // topped up toward food_patch_target (5).
+        assert_eq!(w.patches.len(), genesis);
+    }
+
+    #[test]
+    fn state_hash_covers_recent_productivity() {
+        // Two worlds identical except one ant's recent_productivity must hash
+        // differently, or selection could silently ignore state a colony
+        // actually depends on.
+        let a = World::new(&small(), 1);
+        let mut b = World::new(&small(), 1);
+        b.ants.recent_productivity[0] += 1.0;
+        assert_ne!(a.state_hash(), b.state_hash());
     }
 }

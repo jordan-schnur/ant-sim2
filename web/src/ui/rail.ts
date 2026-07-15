@@ -10,17 +10,20 @@ import type { Store } from "../state.js";
 export function mountRail(
   root: HTMLElement,
   store: Store,
-): { coloniesPane: HTMLElement; explorerPane: HTMLElement } {
+): { coloniesPane: HTMLElement; explorerPane: HTMLElement; statsPane: HTMLElement } {
   const strip = document.createElement("div");
   strip.className = "tabstrip";
 
   const coloniesPane = document.createElement("div");
   const explorerPane = document.createElement("div");
+  const statsPane = document.createElement("div");
   coloniesPane.className = "tabpane";
   explorerPane.className = "tabpane";
+  statsPane.className = "tabpane";
 
-  const tabs: { key: "colonies" | "explorer"; label: string; pane: HTMLElement }[] = [
+  const tabs: { key: "colonies" | "explorer" | "stats"; label: string; pane: HTMLElement }[] = [
     { key: "colonies", label: "Colonies", pane: coloniesPane },
+    { key: "stats", label: "Stats", pane: statsPane },
     { key: "explorer", label: "Explorer", pane: explorerPane },
   ];
   const btns = tabs.map((t) => {
@@ -32,7 +35,7 @@ export function mountRail(
     return b;
   });
 
-  root.append(strip, coloniesPane, explorerPane);
+  root.append(strip, coloniesPane, statsPane, explorerPane);
 
   const sync = () => {
     const active = store.state.activeTab;
@@ -45,5 +48,5 @@ export function mountRail(
   store.subscribe(sync);
   sync();
 
-  return { coloniesPane, explorerPane };
+  return { coloniesPane, explorerPane, statsPane };
 }

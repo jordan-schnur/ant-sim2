@@ -23,11 +23,11 @@ export class WorldRenderer {
   private antVao: WebGLVertexArrayObject;
 
   private pheroTex: WebGLTexture;
-  private homeTex: WebGLTexture;
+  private pheroTrailTex: WebGLTexture;
   private terrainTex: WebGLTexture;
   private glyphTex: WebGLTexture;
   private pheroSize = { w: 0, h: 0 };
-  private homeSize = { w: 0, h: 0 };
+  private pheroTrailSize = { w: 0, h: 0 };
   private terrainSize = { w: 0, h: 0 };
 
   /** The tick of the last uploaded texture, so a paused sim uploads nothing. */
@@ -67,7 +67,7 @@ export class WorldRenderer {
     this.fieldVao = this.makeFieldVao();
     this.antVao = this.makeAntVao();
     this.pheroTex = this.makeTexture();
-    this.homeTex = this.makeTexture();
+    this.pheroTrailTex = this.makeTexture();
     this.terrainTex = this.makeTexture();
     this.glyphTex = this.makeGlyphAtlas();
   }
@@ -201,23 +201,6 @@ export class WorldRenderer {
     }
   }
 
-  /** Single-channel (R8) upload for the home-trail plane. */
-  private uploadHome(w: number, h: number, r8: Uint8Array): void {
-    const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.homeTex);
-    // R8 rows are byte-packed; the default 4-byte unpack alignment would skew
-    // any row whose width is not a multiple of 4.
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    if (this.homeSize.w !== w || this.homeSize.h !== h) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, r8);
-      this.homeSize.w = w;
-      this.homeSize.h = h;
-    } else {
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, r8);
-    }
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-  }
-
   draw(): void {
     const gl = this.gl;
     const st = this.store.state;
@@ -234,7 +217,13 @@ export class WorldRenderer {
     // paused it is every frame.
     if (st.phero && st.phero.tick !== this.pheroTick) {
       this.uploadField(this.pheroTex, this.pheroSize, st.phero.w, st.phero.h, st.phero.rgba);
-      this.uploadHome(st.phero.w, st.phero.h, st.phero.home);
+      this.uploadField(
+        this.pheroTrailTex,
+        this.pheroTrailSize,
+        st.phero.w,
+        st.phero.h,
+        st.phero.trail,
+      );
       this.pheroTick = st.phero.tick;
     }
     if (st.terrain && st.terrain.tick !== this.terrainTick) {
@@ -256,20 +245,21 @@ export class WorldRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.pheroTex);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.terrainTex);
-    gl.activeTexture(gl.TEXTURE3);
-    gl.bindTexture(gl.TEXTURE_2D, this.homeTex);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.pheroTrailTex);
 
     const fu = (n: string) => gl.getUniformLocation(this.fieldProg, n);
     gl.uniformMatrix3fv(fu("uView"), false, view);
     gl.uniform2f(fu("uWorldSize"), this.camera.worldW, this.camera.worldH);
     gl.uniform1i(fu("uPhero"), 0);
     gl.uniform1i(fu("uTerrain"), 1);
-    gl.uniform1i(fu("uHome"), 3);
+    gl.uniform1i(fu("uPheroTrail"), 2);
     gl.uniform3fv(fu("uColonyColors"), palette);
     gl.uniform1i(fu("uShowFood"), st.layers.food ? 1 : 0);
     gl.uniform1i(fu("uShowAlarm"), st.layers.alarm ? 1 : 0);
     gl.uniform1i(fu("uShowScent"), st.layers.scent ? 1 : 0);
     gl.uniform1i(fu("uShowHome"), st.layers.home ? 1 : 0);
+    gl.uniform1i(fu("uShowTrail"), st.layers.trail ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     // --- ant pass ---

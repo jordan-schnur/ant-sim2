@@ -1,12 +1,12 @@
 {
   "hello": { "width": 32, "height": 32, "numColonies": 2, "pheroResLog2": 8, "tick": 50 },
-  "ants": { "tick": 50, "count": 30, "first": { "x": 2240, "y": 544, "colony": 0, "size": 106, "flags": 3 } },
+  "ants": { "tick": 50, "count": 28, "first": { "x": 2240, "y": 544, "colony": 0, "size": 106, "flags": 3 } },
   "phero": { "w": 16, "h": 16, "factor": 2, "firstTexel": [0, 0, 0, 255], "brightestScent": { "texel": 141, "value": 162, "owner": 0 } },
-  "terrain": { "w": 16, "h": 16, "factor": 2, "stoneTexels": 37, "foodTexels": 77, "nestTexels": 8, "maxFood": 255, "maxStone": 255 },
-  "stats": { "count": 2, "first": { "id": 0, "population": 15, "store": 123.5, "births": 11, "deaths": 7, "floorSpawns": 3, "meanSize": 0.67226636, "meanLineage": 1.5333333, "deliveredTotal": 45.25 } },
-  "detail": { "id": 0, "colony": 0, "alive": true, "x": 17.5, "y": 4.25, "age": 37, "lineage": 5, "foodHarvested": 6.5, "trait0": 0.8768017, "trait7": 12507.991, "input0": 1, "input43": 0.10225496, "h1_0": -0.7594333, "h1_15": 0.70737547, "h2_0": 0.71163404, "h2_15": 0.61895597, "output0": 0.22586203, "output7": 0.37602356 },
-  "genome": { "id": 42, "nParams": 1304, "param0": 0.10043309 },
-  "config": { "count": 18, "field0": 0.995 },
+  "terrain": { "w": 16, "h": 16, "factor": 2, "stoneTexels": 37, "foodTexels": 185, "nestTexels": 8, "maxFood": 255, "maxStone": 255 },
+  "stats": { "count": 2, "first": { "id": 0, "population": 14, "store": 123.5, "births": 11, "deaths": 7, "refounds": 3, "meanSize": 0.6724284, "meanLineage": 1.3571428, "deliveredTotal": 45.25, "distinctGenerations": 4 } },
+  "detail": { "id": 0, "colony": 0, "alive": true, "x": 17.5, "y": 4.25, "age": 37, "lineage": 5, "foodHarvested": 6.5, "recentProductivity": 4.25, "trait0": 0.44137996, "trait7": 9445.264, "input0": 1, "input43": 0, "h1_0": -0.49374032, "h1_15": -0.07072186, "h2_0": -0.36384663, "h2_15": 0.7494076, "output0": 0.7850029, "output7": 0.5053644 },
+  "genome": { "id": 42, "nParams": 1384, "param0": 0.10043309 },
+  "config": { "count": 24, "field0": 0.995 },
   "colonyMeta": { "count": 2, "name0": "the Obsidian Marsh" },
   "chronicle": { "count": 1, "tick0": 5, "colony0": 1, "kind0": 0, "text0": "the first crumb" }
 }

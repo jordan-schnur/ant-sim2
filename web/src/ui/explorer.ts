@@ -58,7 +58,7 @@ export function mountExplorer(pane: HTMLElement, store: Store): void {
       kvRow(kv, "generation", "generation", c.meanLineage.toFixed(1));
       kvRow(kv, "paid births", "paid births", String(c.births));
       kvRow(kv, "deaths", "", String(c.deaths));
-      kvRow(kv, "free spawns", "free", String(c.floorSpawns));
+      kvRow(kv, "refounds", "refounds", String(c.refounds));
       kvRow(kv, "mean size", "size", c.meanSize.toFixed(2));
       body.append(kv);
       const hist = store.state.history.get(sel.id);

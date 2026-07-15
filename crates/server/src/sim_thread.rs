@@ -28,9 +28,10 @@ use tokio::sync::watch;
 const ANTS_PERIOD: Duration = Duration::from_millis(50); // 20 fps
 const PHERO_PERIOD: Duration = Duration::from_millis(100); // 10 fps
 const STATS_PERIOD: Duration = Duration::from_millis(250); // 4 fps
-/// Terrain changes slowly — food regrows at 0.002/tick — and a harvested cell
-/// is still visibly gone within a quarter second. No reason to pay a second
-/// full-resolution texture at the pheromone cadence.
+/// Terrain changes slowly — food only shifts when a patch relocates every few
+/// hundred ticks — and a harvested cell is still visibly gone within a quarter
+/// second. No reason to pay a second full-resolution texture at the pheromone
+/// cadence.
 const TERRAIN_PERIOD: Duration = Duration::from_millis(250); // 4 fps
 
 /// When there is nothing to tick and nothing to publish, yield rather than
@@ -386,6 +387,7 @@ fn publish_detail(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
                 carrying: 0.0,
                 food_delivered: 0.0,
                 food_harvested: 0.0,
+                recent_productivity: 0.0,
                 age: 0,
                 lineage: 0,
                 traits: Traits::from_array([0.0; 8]).as_array(),
@@ -413,6 +415,7 @@ fn publish_detail(pubs: &Publishers, st: &State, buf: &mut Vec<u8>) {
             carrying: w.ants.carrying[i],
             food_delivered: w.ants.food_delivered[i],
             food_harvested: w.ants.food_harvested[i],
+            recent_productivity: w.ants.recent_productivity[i],
             age: w.ants.age[i],
             lineage: w.ants.lineage[i],
             traits: w.ants.genome[i].traits.as_array(),
@@ -701,8 +704,7 @@ mod tests {
 
         let ph = h.phero.borrow().clone();
         assert_eq!(ph[0], protocol::TAG_PHERO);
-        // RGBA block plus the trailing R8 home-trail plane.
-        assert_eq!(ph.len(), 14 + 16 * 16 * 4 + 16 * 16);
+        assert_eq!(ph.len(), 14 + 16 * 16 * 8);
 
         let st = h.stats.borrow().clone();
         assert_eq!(st[0], protocol::TAG_STATS);

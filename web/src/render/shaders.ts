@@ -45,13 +45,14 @@ in vec2 vUv;
 out vec4 fragColor;
 
 uniform sampler2D uPhero;
+uniform sampler2D uPheroTrail;
 uniform sampler2D uTerrain;
-uniform sampler2D uHome;
 uniform vec3 uColonyColors[${NUM_COLONY_COLORS}];
 uniform bool uShowFood;
 uniform bool uShowAlarm;
 uniform bool uShowScent;
 uniform bool uShowHome;
+uniform bool uShowTrail;
 
 const vec3 DIRT       = vec3(0.13, 0.11, 0.09);
 const vec3 STONE      = vec3(0.38, 0.37, 0.36);
@@ -108,7 +109,16 @@ void main() {
   if (uShowScent) col += colonyColor(p.a) * p.b * 0.55;
   if (uShowFood)  col += FOOD_TRAIL * p.r * 0.8;
   if (uShowAlarm) col += ALARM * p.g * 0.9;
-  if (uShowHome)  col += HOME_TRAIL * texture(uHome, vUv).r * 0.8;
+  // The colony trail rides in its own texture: R = magnitude, G = owner. Drawn
+  // in the owner's colour but brighter/tighter than scent, since it means
+  // "recently here" rather than "territory".
+  if (uShowTrail) {
+    vec4 pt = texture(uPheroTrail, vUv);
+    col += colonyColor(pt.g) * pt.r * 0.9;
+  }
+  // The home / exploration trail shares the trail texture's B channel — it is
+  // ownerless, so it needs no per-colony lookup the way the colony trail does.
+  if (uShowHome) col += HOME_TRAIL * texture(uPheroTrail, vUv).b * 0.8;
 
   fragColor = vec4(min(col, vec3(1.0)), 1.0);
 }`;

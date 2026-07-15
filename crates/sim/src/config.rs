@@ -54,13 +54,6 @@ pub struct Config {
     /// Food store spent to spawn one ant.
     pub birth_cost: f32,
     pub max_births_per_tick: u32,
-    /// Below this population, the nest spawns free ants from the hall of fame.
-    pub extinction_floor: u32,
-    /// Minimum ticks between two free floor spawns for the same colony. Without
-    /// this the floor tops a colony back up *in the tick its ants die*, which
-    /// hands a besieging colony an infinite conveyor of free corpses to
-    /// scavenge — energy created from nothing at a fixed, findable location.
-    pub floor_respawn_interval: u64,
     pub hall_of_fame_size: usize,
     /// Energy per tick an ant regains while standing on its own nest.
     pub refuel_rate: f32,
@@ -69,10 +62,17 @@ pub struct Config {
     pub food_evaporation: f32,
     pub alarm_evaporation: f32,
     pub scent_evaporation: f32,
+    /// Trail decays much faster than scent — a trail means *recent*, so it fades
+    /// in tens of ticks instead of staining the map like the persistent beacon.
+    pub trail_evaporation: f32,
     /// Fraction of the neighbour-average blended in per tick, per layer.
     pub food_diffusion: f32,
     pub alarm_diffusion: f32,
     pub scent_diffusion: f32,
+    pub trail_diffusion: f32,
+    /// Colony trail deposited by every ant, every tick, on its current cell.
+    /// The "colony-mates were here recently" signal, un-fused from the beacon.
+    pub trail_emission: f32,
     /// The exploration/home trail decays and spreads like the food trail. Kept
     /// off the tunable rail for now (a fixed constant); promote to
     /// `CONFIG_FIELDS` if it wants live tuning.
@@ -134,6 +134,12 @@ pub struct Config {
     /// closer to a forager than one that never heads home. It is what lets a
     /// colony bootstrap foraging from random genomes. `0.0` disables it.
     pub homing_weight: f32,
+    /// Weight on a decaying EMA of recent useful work (harvest + delivery +
+    /// kills). Rewards ants that *keep* producing rather than fluking once and
+    /// coasting. `0.0` disables it, recovering pure cumulative selection.
+    pub productivity_weight: f32,
+    /// Per-tick decay of `Ants::recent_productivity`. ~69-tick half-life at 0.99.
+    pub productivity_decay: f32,
 
     // --- Mutation ---
     /// Fraction of parameters perturbed per birth.
@@ -146,7 +152,12 @@ pub struct Config {
     pub food_patch_count: u32,
     pub food_patch_radius: f32,
     pub food_patch_max: f32,
-    pub food_regrow: f32,
+    /// Ticks between food-relocation passes. Each pass drops depleted patches
+    /// and tops the live count back up to `food_patch_target`. `< 1` disables.
+    pub food_spawn_interval: f32,
+    /// Steady-state number of live food patches the world maintains. Stored as
+    /// f32 (the tuning wire is f32-only) and cast to a count at use.
+    pub food_patch_target: f32,
     /// Food harvested per tick by an ant standing on a food cell.
     pub harvest_rate: f32,
 }
@@ -158,10 +169,15 @@ impl Config {
 
     /// Selection fitness: the real objective (food delivered) plus the harvest
     /// and homing nudges that give evolution a gradient before any full delivery
-    /// happens. `harvest_weight = homing_weight = 0` recovers pure delivery.
+    /// happens, plus a decaying recent-productivity term that rewards ants who
+    /// keep producing. `harvest_weight = homing_weight = productivity_weight = 0`
+    /// recovers pure delivery.
     #[inline]
-    pub fn fitness(&self, delivered: f32, harvested: f32, homing: f32) -> f32 {
-        delivered + self.harvest_weight * harvested + self.homing_weight * homing
+    pub fn fitness(&self, delivered: f32, harvested: f32, homing: f32, recent: f32) -> f32 {
+        delivered
+            + self.harvest_weight * harvested
+            + self.homing_weight * homing
+            + self.productivity_weight * recent
     }
 }
 
@@ -189,17 +205,18 @@ impl Default for Config {
             // with sustained paid births. See the 2026-07-13 economy-tuning note.
             birth_cost: 12.0,
             max_births_per_tick: 2,
-            extinction_floor: 5,
-            floor_respawn_interval: 200,
             hall_of_fame_size: 10,
             refuel_rate: 0.75,
 
             food_evaporation: 0.995,
             alarm_evaporation: 0.97,
             scent_evaporation: 0.999,
+            trail_evaporation: 0.95,
             food_diffusion: 0.12,
             alarm_diffusion: 0.20,
             scent_diffusion: 0.06,
+            trail_diffusion: 0.06,
+            trail_emission: 1.0,
             // The home trail should linger a little longer and spread a little
             // wider than the food trail, so an outbound network of routes builds
             // up around the nest rather than a set of thin one-ant tracks.
@@ -233,6 +250,8 @@ impl Default for Config {
 
             harvest_weight: 0.02,
             homing_weight: 0.05,
+            productivity_weight: 0.1,
+            productivity_decay: 0.99,
 
             mutation_rate: 0.08,
             mutation_sigma: 0.05,
@@ -242,7 +261,8 @@ impl Default for Config {
             food_patch_count: 40,
             food_patch_radius: 6.0,
             food_patch_max: 200.0,
-            food_regrow: 0.002,
+            food_spawn_interval: 300.0,
+            food_patch_target: 48.0,
             harvest_rate: 2.0,
         }
     }
@@ -268,7 +288,13 @@ mod tests {
     #[test]
     fn evaporation_rates_are_decay_multipliers() {
         let c = Config::default();
-        for r in [c.food_evaporation, c.alarm_evaporation, c.scent_evaporation, c.home_evaporation] {
+        for r in [
+            c.food_evaporation,
+            c.alarm_evaporation,
+            c.scent_evaporation,
+            c.trail_evaporation,
+            c.home_evaporation,
+        ] {
             assert!(r > 0.0 && r < 1.0, "evaporation must be in (0,1), got {r}");
         }
     }
@@ -339,14 +365,14 @@ mod tests {
     fn fitness_is_delivery_plus_weighted_harvest_and_homing() {
         let c = Config { harvest_weight: 0.02, homing_weight: 0.05, ..Config::default() };
         // 10 + 0.02*100 + 0.05*20 = 13.0
-        assert!((c.fitness(10.0, 100.0, 20.0) - 13.0).abs() < 1e-6);
+        assert!((c.fitness(10.0, 100.0, 20.0, 0.0) - 13.0).abs() < 1e-6);
     }
 
     #[test]
     fn fitness_with_zero_weights_is_pure_delivery() {
         // The purity toggle: both nudges at 0 recovers the original thesis.
         let c = Config { harvest_weight: 0.0, homing_weight: 0.0, ..Config::default() };
-        assert_eq!(c.fitness(7.0, 999.0, 999.0), 7.0);
+        assert_eq!(c.fitness(7.0, 999.0, 999.0, 0.0), 7.0);
     }
 
     #[test]
@@ -354,9 +380,29 @@ mod tests {
         // Anti-reward-hacking bound: any delivered unit must beat a plausible
         // lifetime of harvest-without-delivery at the default weight.
         let c = Config::default();
-        let lifetime_harvest_only = c.fitness(0.0, 400.0, 0.0); // busy forager, never delivers
-        let one_delivery = c.fitness(10.0, 0.0, 0.0);
+        let lifetime_harvest_only = c.fitness(0.0, 400.0, 0.0, 0.0); // busy forager, never delivers
+        let one_delivery = c.fitness(10.0, 0.0, 0.0, 0.0);
         assert!(one_delivery > lifetime_harvest_only,
             "delivery {one_delivery} must dominate harvest {lifetime_harvest_only}");
+    }
+
+    #[test]
+    fn fitness_adds_weighted_recent_productivity() {
+        let c = Config { productivity_weight: 0.1, ..Config::default() };
+        // delivered 10 + 0.02*100 + 0.05*20 + 0.1*50 = 10 + 2 + 1 + 5 = 18
+        assert!((c.fitness(10.0, 100.0, 20.0, 50.0) - 18.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn zero_productivity_weight_recovers_prior_fitness() {
+        let c = Config { productivity_weight: 0.0, ..Config::default() };
+        // recent is invisible: matches the old three-arg result.
+        assert_eq!(c.fitness(7.0, 0.0, 0.0, 999.0), 7.0);
+    }
+
+    #[test]
+    fn productivity_decay_is_a_valid_rate() {
+        let d = Config::default().productivity_decay;
+        assert!(d > 0.0 && d < 1.0, "decay must be in (0,1), got {d}");
     }
 }

@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 /// Number of sensory inputs fed to every ant's network.
-pub const N_INPUTS: usize = 55;
+pub const N_INPUTS: usize = 60;
 /// First hidden layer width.
 pub const N_HIDDEN1: usize = 16;
 /// Second hidden layer width.
@@ -46,6 +46,9 @@ mod tests {
 
     #[test]
     fn param_count_matches_spec() {
-        assert_eq!(N_PARAMS, 1304);
+        // 60 inputs after the merge of the colony trail (own-trail whisker
+        // channel) and the exploration trail + home vector (home-trail channel,
+        // home-trail underfoot, and the 3-input home vector).
+        assert_eq!(N_PARAMS, 1384);
     }
 }

@@ -44,14 +44,14 @@ export function mountColonies(
       k.delivered.textContent = c.deliveredTotal.toFixed(0);
       k.births.textContent = String(c.births);
 
-      // Free floor spawns against paid births. When this ratio runs away, the
-      // safety net -- not the food economy -- is reproducing the colony, which
-      // is exactly what the 500k-tick run found.
-      const total = c.births + c.floorSpawns;
-      const freeFrac = total > 0 ? c.floorSpawns / total : 0;
-      k.freeBar.style.width = `${(freeFrac * 100).toFixed(1)}%`;
-      k.free.textContent = `${(freeFrac * 100).toFixed(0)}%`;
-      k.free.title = `${c.floorSpawns} free floor spawns vs ${c.births} paid births`;
+      // Collapse thrash: refounds against paid births. A colony that keeps
+      // dying and being reseeded from the world reservoir, rather than growing
+      // from its own food economy, shows a runaway ratio here.
+      const total = c.births + c.refounds;
+      const collapseFrac = total > 0 ? c.refounds / total : 0;
+      k.freeBar.style.width = `${(collapseFrac * 100).toFixed(1)}%`;
+      k.free.textContent = String(c.refounds);
+      k.free.title = `${c.refounds} refounds (collapses) vs ${c.births} paid births`;
 
       const h = st.history.get(c.id);
       if (h) sparkline(k.canvas, h, c.id);
@@ -104,7 +104,7 @@ function card(id: number) {
   const gen = mk("gen");
   const delivered = mk("delivered");
   const births = mk("paid births");
-  const free = mk("free");
+  const free = mk("refounds");
 
   const bar = document.createElement("div");
   bar.className = "bar";

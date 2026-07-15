@@ -56,7 +56,7 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
 
   root.append(section("Layers"));
   const layerBoxes: Record<string, HTMLInputElement> = {};
-  for (const key of ["food", "alarm", "scent", "home"] as const) {
+  for (const key of ["food", "alarm", "scent", "home", "trail"] as const) {
     const { label, input } = checkbox(key, store.state.layers[key], () => store.toggleLayer(key));
     layerBoxes[key] = input;
     root.append(label);
@@ -167,22 +167,23 @@ export function mountControls(root: HTMLElement, store: Store, net: Net): void {
     btnStep.textContent = "⏭ step";
     speedBtns.forEach((b, i) => b.classList.toggle("on", st.speed === i && !st.paused));
 
-    for (const key of ["food", "alarm", "scent", "home"] as const) {
+    for (const key of ["food", "alarm", "scent", "home", "trail"] as const) {
       layerBoxes[key].checked = st.layers[key];
     }
     labelsBox.input.checked = st.labels;
     btnRes.textContent = st.pheroResLog2 === 9 ? "phero 512²" : "phero 256²";
 
     // Slider positions come from the server's config frame, not from our own
-    // guess at the defaults. Skip the one being dragged: writing to `value`
-    // mid-drag fights the pointer.
+    // guess at the defaults. Skip the one being dragged entirely: stats frames
+    // fire this render ~every tick, and overwriting the value label mid-drag
+    // (or in the brief lag before the server echoes the new value back) reverts
+    // the number the operator just set and reads as "the slider did nothing".
     for (const s of sliders) {
+      if (document.activeElement === s.input) continue;
       const v = st.config.get(s.t.id);
       if (v === undefined) continue;
       s.val.textContent = formatValue(s.t, v);
-      if (document.activeElement !== s.input) {
-        s.input.value = String(Math.round(toPosition(s.t, v) * DIVISIONS));
-      }
+      s.input.value = String(Math.round(toPosition(s.t, v) * DIVISIONS));
     }
 
     status.textContent = st.connected ? `tick ${st.tick.toLocaleString()}` : "disconnected";

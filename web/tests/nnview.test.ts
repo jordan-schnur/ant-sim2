@@ -15,8 +15,8 @@ describe("nnview layout", () => {
   it("places 95 nodes in four columns", () => {
     const { nodes, layerStart } = layout(400, 300);
     expect(nodes.length).toBe(N_INPUTS + N_HIDDEN1 + N_HIDDEN2 + N_OUTPUTS);
-    expect(nodes.length).toBe(95);
-    expect(layerStart).toEqual([0, 55, 71, 87]);
+    expect(nodes.length).toBe(100);
+    expect(layerStart).toEqual([0, 60, 76, 92]);
   });
 
   it("gives each layer its own x and orders columns left to right", () => {
@@ -66,12 +66,12 @@ describe("nnview layout", () => {
 describe("parameter block offsets", () => {
   it("match the Rust genome layout and account for every parameter", () => {
     // If these drift, the inspector draws edges from the wrong weights and the
-    // picture is a confident lie. W1[44x16] B1[16] W2[16x16] B2[16] W3[16x8] B3[8]
+    // picture is a confident lie. W1[60x16] B1[16] W2[16x16] B2[16] W3[16x8] B3[8]
     expect(W1_OFF).toBe(0);
     expect(W2_OFF).toBe(N_INPUTS * N_HIDDEN1 + N_HIDDEN1);
     expect(W3_OFF).toBe(W2_OFF + N_HIDDEN1 * N_HIDDEN2 + N_HIDDEN2);
     expect(B3_OFF + N_OUTPUTS).toBe(N_PARAMS);
-    expect(N_PARAMS).toBe(1304);
+    expect(N_PARAMS).toBe(1384);
   });
 });
 

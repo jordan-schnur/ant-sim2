@@ -40,10 +40,10 @@ export const CMD_RENAME_COLONY = 0x0e;
 export const CMD_ADD_TO_STORE = 0x0f;
 
 export const BYTES_PER_ANT = 8;
-export const BYTES_PER_COLONY = 46;
-export const ANT_DETAIL_LEN = 469;
+export const BYTES_PER_COLONY = 50;
+export const ANT_DETAIL_LEN = 493;
 
-export const N_INPUTS = 55;
+export const N_INPUTS = 60;
 export const N_HIDDEN1 = 16;
 export const N_HIDDEN2 = 16;
 export const N_OUTPUTS = 8;
@@ -83,10 +83,16 @@ export const CONFIG_FIELDS = [
   "harvest_rate",
   "refuel_rate",
   "growth_threshold",
-  "food_regrow",
+  "food_spawn_interval",
   "attack_damage",
   "harvest_weight",
   "homing_weight",
+  "trail_emission",
+  "trail_evaporation",
+  "trail_diffusion",
+  "productivity_weight",
+  "productivity_decay",
+  "food_patch_target",
 ] as const;
 
 export const TRAIT_NAMES = [
@@ -123,10 +129,12 @@ export interface Phero {
   w: number;
   h: number;
   factor: number;
-  /** RGBA8. R food, G alarm, B scent, A owning colony (255 = none). */
+  /** RGBA8, de-interleaved from the scent texel. R food, G alarm, B scent,
+   *  A owning colony (255 = none). */
   rgba: Uint8Array;
-  /** R8. The home / exploration trail, appended after the RGBA block. */
-  home: Uint8Array;
+  /** RGBA8, de-interleaved from the trail texel. R colony-trail magnitude,
+   *  G trail owner (255 = none), B home/exploration trail, A reserved. */
+  trail: Uint8Array;
 }
 
 /**
@@ -150,12 +158,17 @@ export interface ColonyStat {
   store: number;
   births: number;
   deaths: number;
-  floorSpawns: number;
+  /** Times this colony collapsed to zero and was refounded from the world
+   *  reservoir. High values mean death-thrash, not thriving. */
+  refounds: number;
   meanSize: number;
   /** Mean lineage depth. This is what the project calls a "generation". */
   meanLineage: number;
   /** Monotonic. The only curve that answers "is this evolving". */
   deliveredTotal: number;
+  /** Distinct lineage depths among living ants — a spread signal, not genetic
+   *  diversity. 1 = a single same-age cohort (e.g. just refounded). */
+  distinctGenerations: number;
 }
 
 export interface Stats {
@@ -178,6 +191,7 @@ export interface AntDetail {
   carrying: number;
   foodDelivered: number;
   foodHarvested: number;
+  recentProductivity: number;
   age: number;
   lineage: number;
   traits: Float32Array;
@@ -276,15 +290,31 @@ export function decode(buf: ArrayBuffer): Frame | null {
     case TAG_PHERO: {
       const w = v.getUint16(9, true);
       const h = v.getUint16(11, true);
-      // RGBA block, then a single-channel home-trail plane of the same size.
+      // Eight bytes per cell: a scent RGBA texel then a trail RGBA texel,
+      // interleaved. De-interleave into two contiguous textures the renderer
+      // can upload directly.
+      const cells = w * h;
+      const packed = new Uint8Array(buf, 14, cells * 8);
+      const rgba = new Uint8Array(cells * 4);
+      const trail = new Uint8Array(cells * 4);
+      for (let i = 0; i < cells; i++) {
+        rgba[i * 4] = packed[i * 8];
+        rgba[i * 4 + 1] = packed[i * 8 + 1];
+        rgba[i * 4 + 2] = packed[i * 8 + 2];
+        rgba[i * 4 + 3] = packed[i * 8 + 3];
+        trail[i * 4] = packed[i * 8 + 4];
+        trail[i * 4 + 1] = packed[i * 8 + 5];
+        trail[i * 4 + 2] = packed[i * 8 + 6];
+        trail[i * 4 + 3] = packed[i * 8 + 7];
+      }
       return {
         kind: "phero",
         tick: u64(v, 1),
         w,
         h,
         factor: v.getUint8(13),
-        rgba: new Uint8Array(buf, 14, w * h * 4),
-        home: new Uint8Array(buf, 14 + w * h * 4, w * h),
+        rgba,
+        trail,
       };
     }
 
@@ -313,10 +343,11 @@ export function decode(buf: ArrayBuffer): Frame | null {
           store: v.getFloat32(o + 6, true),
           births: u64(v, o + 10),
           deaths: u64(v, o + 18),
-          floorSpawns: u64(v, o + 26),
+          refounds: u64(v, o + 26),
           meanSize: v.getFloat32(o + 34, true),
           meanLineage: v.getFloat32(o + 38, true),
           deliveredTotal: v.getFloat32(o + 42, true),
+          distinctGenerations: v.getUint32(o + 46, true),
         });
       }
       return { kind: "stats", tick: u64(v, 1), colonies };
@@ -346,7 +377,9 @@ export function decode(buf: ArrayBuffer): Frame | null {
         size: f(33),
         carrying: f(37),
         foodDelivered: f(41),
-        foodHarvested: f(ANT_DETAIL_LEN - 4),
+        // foodHarvested sits just before recentProductivity, at ANT_DETAIL_LEN - 8.
+        foodHarvested: f(ANT_DETAIL_LEN - 8),
+        recentProductivity: f(ANT_DETAIL_LEN - 4),
         age: v.getUint32(45, true),
         lineage: v.getUint32(49, true),
         traits: floats(53, 8),

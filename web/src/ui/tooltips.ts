@@ -17,9 +17,14 @@ export const TOOLTIPS: Record<string, string> = {
   carrying: "Food the ant is holding, not yet banked at a nest.",
   fitness:
     "An ant's success: food carried home (delivered) plus a small credit " +
-    "(harvest_weight, ~0.02) for all the food it has ever picked up. Fitter " +
+    "(harvest_weight, ~0.02) for all the food it has ever picked up, plus a " +
+    "credit (productivity_weight, ~0.1) for its recent productivity. Fitter " +
     "ants are chosen as parents more often.",
   harvested: "Lifetime food this ant has picked up (banked or not).",
+  recentProductivity:
+    "A decaying tally of food this ant has harvested or scavenged recently " +
+    "(productivity_decay per tick). Rewards ants that keep producing, not just " +
+    "ones that produced once long ago.",
   size: "Body size. Bigger ants cost more upkeep but hit harder.",
   "paid births": "Births paid for from the store (birth_cost each).",
   free: "Share of this colony's ants that were free extinction-floor spawns.",

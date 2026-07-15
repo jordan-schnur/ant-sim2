@@ -44,6 +44,9 @@ pub struct Ants {
     /// its own nest. Another dense fitness stepping stone (see `Config::fitness`),
     /// serialized for the same reason as `food_harvested`.
     pub food_homing: Vec<f32>,
+    /// Decaying EMA of recent useful work — see `Config::productivity_weight`.
+    /// Serialized: it is real selection state, not a per-tick scratch value.
+    pub recent_productivity: Vec<f32>,
     pub memory: Vec<[f32; N_MEMORY]>,
     pub genome: Vec<Genome>,
     pub rng: Vec<Pcg32>,
@@ -143,6 +146,7 @@ impl Ants {
         self.food_delivered.push(0.0);
         self.food_harvested.push(0.0);
         self.food_homing.push(0.0);
+        self.recent_productivity.push(0.0);
         self.memory.push([0.0; N_MEMORY]);
         self.genome.push(s.genome);
         self.alive.push(true);
@@ -196,6 +200,7 @@ impl Ants {
         retain(&mut self.food_delivered, &keep);
         retain(&mut self.food_harvested, &keep);
         retain(&mut self.food_homing, &keep);
+        retain(&mut self.recent_productivity, &keep);
         retain(&mut self.memory, &keep);
         retain(&mut self.genome, &keep);
         retain(&mut self.rng, &keep);
@@ -275,6 +280,7 @@ mod tests {
         assert_eq!(a.food_delivered.len(), n);
         assert_eq!(a.food_harvested.len(), n);
         assert_eq!(a.food_homing.len(), n);
+        assert_eq!(a.recent_productivity.len(), n);
         assert_eq!(a.memory.len(), n);
         assert_eq!(a.genome.len(), n);
         assert_eq!(a.rng.len(), n);
@@ -339,5 +345,12 @@ mod tests {
         let mut a = Ants::new();
         a.push(spawn(0, 0, 0.0, 0.0));
         assert_eq!(a.memory[0], [0.0; crate::N_MEMORY]);
+    }
+
+    #[test]
+    fn a_new_ant_starts_with_zero_recent_productivity() {
+        let mut a = Ants::new();
+        a.push(spawn(0, 0, 0.0, 0.0));
+        assert_eq!(a.recent_productivity[0], 0.0);
     }
 }

@@ -1,8 +1,60 @@
 use crate::config::Config;
 use serde::{Deserialize, Serialize};
 
-/// Sentinel in `Pheromones::owner` meaning "no colony has marked this cell".
+/// Sentinel in an `OwnedField::owner` meaning "no colony has marked this cell".
 pub const NO_OWNER: u8 = 255;
+
+/// A contested, colony-owned scalar field: each cell holds a magnitude and the
+/// id of the colony that owns it. Deposits from the owner reinforce; a different
+/// colony erodes the incumbent and seizes the cell once it erodes past zero.
+/// Diffusion carries ownership with the magnitude. Both `scent` (persistent
+/// homing/territory beacon) and `trail` (fast-fading recent-path signal) are
+/// instances — they differ only in tuning and who deposits.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct OwnedField {
+    /// Strength of the *owning* colony's mark. Never negative.
+    pub mag: Vec<f32>,
+    pub owner: Vec<u8>,
+}
+
+impl OwnedField {
+    fn new(n: usize) -> Self {
+        OwnedField {
+            mag: vec![0.0; n],
+            owner: vec![NO_OWNER; n],
+        }
+    }
+
+    /// Same colony reinforces. A different colony erodes, and takes ownership
+    /// if it erodes the incumbent past zero. This is why territory is a
+    /// contested field rather than eight independent maps.
+    pub fn deposit(&mut self, i: usize, amount: f32, colony: u8) {
+        if self.owner[i] == colony {
+            self.mag[i] += amount;
+        } else if self.owner[i] == NO_OWNER || self.mag[i] <= amount {
+            self.mag[i] = amount - self.mag[i];
+            self.owner[i] = colony;
+        } else {
+            self.mag[i] -= amount;
+        }
+    }
+
+    /// `(own, foreign)` as seen by `colony`. Exactly one is nonzero.
+    #[inline]
+    pub fn read(&self, i: usize, colony: u8) -> (f32, f32) {
+        if self.owner[i] == colony {
+            (self.mag[i], 0.0)
+        } else if self.owner[i] == NO_OWNER {
+            (0.0, 0.0)
+        } else {
+            (0.0, self.mag[i])
+        }
+    }
+
+    fn diffuse(&mut self, w: u16, h: u16, diffusion: f32, evaporation: f32) {
+        diffuse_owned(&mut self.mag, &mut self.owner, w, h, diffusion, evaporation);
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Pheromones {
@@ -16,9 +68,12 @@ pub struct Pheromones {
     /// direction comes from the home vector, not this field. See
     /// `docs/superpowers/specs/2026-07-15-home-vector-and-exploration-trail-design.md`.
     pub home: Vec<f32>,
-    /// Strength of the *owning* colony's mark. Never negative.
-    pub scent: Vec<f32>,
-    pub owner: Vec<u8>,
+    /// Persistent colony beacon: nest homing signal fused with ant territory.
+    pub scent: OwnedField,
+    /// Fast-fading "colony-mates were here recently" signal. Only ants lay it;
+    /// nests never touch it. This is the recruit/explore channel un-fused from
+    /// the homing beacon.
+    pub trail: OwnedField,
 }
 
 impl Pheromones {
@@ -30,8 +85,8 @@ impl Pheromones {
             food: vec![0.0; n],
             alarm: vec![0.0; n],
             home: vec![0.0; n],
-            scent: vec![0.0; n],
-            owner: vec![NO_OWNER; n],
+            scent: OwnedField::new(n),
+            trail: OwnedField::new(n),
         }
     }
 
@@ -50,40 +105,36 @@ impl Pheromones {
         self.alarm[i] += amount;
     }
 
-    /// Same colony reinforces. A different colony erodes, and takes ownership
-    /// if it erodes the incumbent past zero. This is why territory is a
-    /// contested field rather than eight independent maps.
+    #[inline]
     pub fn deposit_scent(&mut self, i: usize, amount: f32, colony: u8) {
-        if self.owner[i] == colony {
-            self.scent[i] += amount;
-        } else if self.owner[i] == NO_OWNER || self.scent[i] <= amount {
-            self.scent[i] = amount - self.scent[i];
-            self.owner[i] = colony;
-        } else {
-            self.scent[i] -= amount;
-        }
+        self.scent.deposit(i, amount, colony);
     }
 
     /// `(own_scent, foreign_scent)` as seen by `colony`. Exactly one is nonzero.
     #[inline]
     pub fn scent_for(&self, i: usize, colony: u8) -> (f32, f32) {
-        if self.owner[i] == colony {
-            (self.scent[i], 0.0)
-        } else if self.owner[i] == NO_OWNER {
-            (0.0, 0.0)
-        } else {
-            (0.0, self.scent[i])
-        }
+        self.scent.read(i, colony)
+    }
+
+    #[inline]
+    pub fn deposit_trail(&mut self, i: usize, amount: f32, colony: u8) {
+        self.trail.deposit(i, amount, colony);
+    }
+
+    /// `(own_trail, foreign_trail)` as seen by `colony`. Exactly one is nonzero.
+    #[inline]
+    pub fn trail_for(&self, i: usize, colony: u8) -> (f32, f32) {
+        self.trail.read(i, colony)
     }
 
     /// Evaporate then diffuse every layer. Diffusion is a 4-point blend toward
     /// the neighbour average; out-of-bounds neighbours read as the cell itself,
     /// so nothing leaks off the border.
     ///
-    /// The scent layer carries an owner, so it cannot use the same blend: scent
-    /// must spread *with* its ownership, or a nest's beacon diffuses into cells
-    /// that hold a magnitude nobody owns, which `scent_for` reports as nothing.
-    /// See `diffuse_scent`.
+    /// The owned layers carry an owner, so they cannot use the same blend: they
+    /// must spread *with* their ownership, or a nest's beacon diffuses into
+    /// cells that hold a magnitude nobody owns, which `read` reports as nothing.
+    /// See `diffuse_owned`.
     pub fn step(&mut self, cfg: &Config) {
         diffuse_decay(
             &mut self.food,
@@ -106,14 +157,10 @@ impl Pheromones {
             cfg.home_diffusion,
             cfg.home_evaporation,
         );
-        diffuse_scent(
-            &mut self.scent,
-            &mut self.owner,
-            self.width,
-            self.height,
-            cfg.scent_diffusion,
-            cfg.scent_evaporation,
-        );
+        self.scent
+            .diffuse(self.width, self.height, cfg.scent_diffusion, cfg.scent_evaporation);
+        self.trail
+            .diffuse(self.width, self.height, cfg.trail_diffusion, cfg.trail_evaporation);
     }
 }
 
@@ -135,21 +182,21 @@ fn accumulate(ids: &mut [u8; 5], amts: &mut [f32; 5], n: &mut usize, owner: u8, 
     *n += 1;
 }
 
-/// Diffusion for the contested colony-scent field.
+/// Diffusion for a contested colony-owned field.
 ///
-/// Each cell keeps `1 - diffusion` of its own scent and receives `diffusion/4`
-/// from each neighbour, but every contribution arrives *tagged with its owner*.
-/// The strongest owner takes the cell and the rest erode it, exactly as
-/// `deposit_scent` does — so territory contests resolve identically whether the
-/// scent arrived by an ant's feet or by diffusion.
+/// Each cell keeps `1 - diffusion` of its own magnitude and receives
+/// `diffusion/4` from each neighbour, but every contribution arrives *tagged
+/// with its owner*. The strongest owner takes the cell and the rest erode it,
+/// exactly as `OwnedField::deposit` does — so territory contests resolve
+/// identically whether the magnitude arrived by an ant's feet or by diffusion.
 ///
 /// When every contribution shares one owner this reduces to the plain 4-point
 /// blend, which is the common case in a colony's own territory.
 ///
 /// Deterministic: neighbours are visited in a fixed order and ties go to the
 /// lower colony id.
-fn diffuse_scent(
-    scent: &mut [f32],
+fn diffuse_owned(
+    mag: &mut [f32],
     owner: &mut [u8],
     w: u16,
     h: u16,
@@ -158,7 +205,7 @@ fn diffuse_scent(
 ) {
     let w = w as usize;
     let h = h as usize;
-    let src_v = scent.to_vec();
+    let src_v = mag.to_vec();
     let src_o = owner.to_vec();
 
     let keep = 1.0 - diffusion;
@@ -187,7 +234,7 @@ fn diffuse_scent(
             }
 
             if n == 0 {
-                scent[i] = 0.0;
+                mag[i] = 0.0;
                 owner[i] = NO_OWNER;
                 continue;
             }
@@ -203,10 +250,10 @@ fn diffuse_scent(
             let net = (2.0 * amts[best] - total) * evaporation;
 
             if net < 1e-6 {
-                scent[i] = 0.0;
+                mag[i] = 0.0;
                 owner[i] = NO_OWNER;
             } else {
-                scent[i] = net;
+                mag[i] = net;
                 owner[i] = ids[best];
             }
         }
@@ -259,8 +306,8 @@ mod tests {
         let mut p = Pheromones::new(&small());
         p.deposit_scent(10, 2.0, 1);
         p.deposit_scent(10, 3.0, 1);
-        assert_eq!(p.scent[10], 5.0);
-        assert_eq!(p.owner[10], 1);
+        assert_eq!(p.scent.mag[10], 5.0);
+        assert_eq!(p.scent.owner[10], 1);
     }
 
     #[test]
@@ -268,8 +315,8 @@ mod tests {
         let mut p = Pheromones::new(&small());
         p.deposit_scent(10, 5.0, 1);
         p.deposit_scent(10, 2.0, 2);
-        assert_eq!(p.owner[10], 1, "incumbent holds while strength remains");
-        assert_eq!(p.scent[10], 3.0);
+        assert_eq!(p.scent.owner[10], 1, "incumbent holds while strength remains");
+        assert_eq!(p.scent.mag[10], 3.0);
     }
 
     #[test]
@@ -277,16 +324,16 @@ mod tests {
         let mut p = Pheromones::new(&small());
         p.deposit_scent(10, 2.0, 1);
         p.deposit_scent(10, 5.0, 2);
-        assert_eq!(p.owner[10], 2);
-        assert_eq!(p.scent[10], 3.0);
+        assert_eq!(p.scent.owner[10], 2);
+        assert_eq!(p.scent.mag[10], 3.0);
     }
 
     #[test]
     fn unowned_cell_takes_the_depositor_as_owner() {
         let mut p = Pheromones::new(&small());
-        assert_eq!(p.owner[10], NO_OWNER);
+        assert_eq!(p.scent.owner[10], NO_OWNER);
         p.deposit_scent(10, 1.0, 6);
-        assert_eq!(p.owner[10], 6);
+        assert_eq!(p.scent.owner[10], 6);
     }
 
     #[test]
@@ -342,7 +389,7 @@ mod tests {
         let (own, foreign) = p.scent_for(center + 1, 2);
         assert!(own > 0.0, "the neighbour cell holds no readable own-scent");
         assert_eq!(foreign, 0.0);
-        assert_eq!(p.owner[center + 1], 2);
+        assert_eq!(p.scent.owner[center + 1], 2);
     }
 
     #[test]
@@ -366,7 +413,7 @@ mod tests {
         );
         for i in 0..plain.len() {
             if plain[i] >= 1e-6 {
-                assert!((p.scent[i] - plain[i]).abs() < 1e-3, "cell {i}");
+                assert!((p.scent.mag[i] - plain[i]).abs() < 1e-3, "cell {i}");
             }
         }
     }
@@ -379,10 +426,7 @@ mod tests {
         p.deposit_scent(mid - 1, 1000.0, 1);
         p.deposit_scent(mid + 1, 10.0, 3);
         p.step(&cfg);
-        assert_eq!(
-            p.owner[mid], 1,
-            "the stronger colony should hold the ground"
-        );
+        assert_eq!(p.scent.owner[mid], 1, "the stronger colony should hold the ground");
     }
 
     #[test]
@@ -393,8 +437,8 @@ mod tests {
         p.deposit_scent(mid - 1, 500.0, 1);
         p.deposit_scent(mid + 1, 500.0, 2);
         p.step(&cfg);
-        assert_eq!(p.scent[mid], 0.0);
-        assert_eq!(p.owner[mid], NO_OWNER);
+        assert_eq!(p.scent.mag[mid], 0.0);
+        assert_eq!(p.scent.owner[mid], NO_OWNER);
     }
 
     #[test]
@@ -407,5 +451,33 @@ mod tests {
         }
         let total: f32 = p.food.iter().sum();
         assert!(total < 1.0, "stale trail should evaporate, total={total}");
+    }
+
+    #[test]
+    fn trail_reads_own_and_foreign_like_scent() {
+        let mut p = Pheromones::new(&small());
+        p.deposit_trail(10, 4.0, 3);
+        assert_eq!(p.trail_for(10, 3), (4.0, 0.0));
+        assert_eq!(p.trail_for(10, 5), (0.0, 4.0));
+    }
+
+    #[test]
+    fn trail_evaporates_faster_than_scent() {
+        // Same deposit into both fields; after a handful of steps the trail
+        // (fast evaporation) must have collapsed far more than the scent.
+        let cfg = small();
+        let mut p = Pheromones::new(&cfg);
+        let cell = 8 * 4 + 4;
+        p.deposit_scent(cell, 1000.0, 1);
+        p.deposit_trail(cell, 1000.0, 1);
+        for _ in 0..30 {
+            p.step(&cfg);
+        }
+        let scent_total: f32 = p.scent.mag.iter().sum();
+        let trail_total: f32 = p.trail.mag.iter().sum();
+        assert!(
+            trail_total < scent_total * 0.5,
+            "trail should be much fainter: trail={trail_total} scent={scent_total}"
+        );
     }
 }

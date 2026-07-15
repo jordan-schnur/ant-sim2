@@ -47,8 +47,10 @@ fn apply_override(cfg: &mut Config, spec: &str) -> Result<(), String> {
         "initial_food_store" => cfg.initial_food_store = f(value)?,
         "birth_cost" => cfg.birth_cost = f(value)?,
         "max_births_per_tick" => cfg.max_births_per_tick = u(value)?,
-        "extinction_floor" => cfg.extinction_floor = u(value)?,
         "refuel_rate" => cfg.refuel_rate = f(value)?,
+        "trail_emission" => cfg.trail_emission = f(value)?,
+        "trail_evaporation" => cfg.trail_evaporation = f(value)?,
+        "trail_diffusion" => cfg.trail_diffusion = f(value)?,
         "base_upkeep" => cfg.base_upkeep = f(value)?,
         "tax_speed" => cfg.tax_speed = f(value)?,
         "tax_strength" => cfg.tax_strength = f(value)?,
@@ -61,9 +63,12 @@ fn apply_override(cfg: &mut Config, spec: &str) -> Result<(), String> {
         "homing_weight" => cfg.homing_weight = f(value)?,
         "food_patch_count" => cfg.food_patch_count = u(value)?,
         "food_patch_max" => cfg.food_patch_max = f(value)?,
-        "food_regrow" => cfg.food_regrow = f(value)?,
+        "food_spawn_interval" => cfg.food_spawn_interval = f(value)?,
+        "food_patch_target" => cfg.food_patch_target = f(value)?,
         "harvest_rate" => cfg.harvest_rate = f(value)?,
         "initial_ants_per_colony" => cfg.initial_ants_per_colony = u(value)?,
+        "productivity_weight" => cfg.productivity_weight = f(value)?,
+        "productivity_decay" => cfg.productivity_decay = f(value)?,
         _ => return Err(format!("unknown config field '{field}'")),
     }
     Ok(())
@@ -90,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = std::io::BufWriter::new(stdout.lock());
     writeln!(
         out,
-        "tick,colony,population,store,births,deaths,floor_spawns,mean_size,generation,\
+        "tick,colony,population,store,births,deaths,refounds,mean_size,generation,\
          food_delivered,delivered_total"
     )?;
 
@@ -107,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     s.store,
                     s.births,
                     s.deaths,
-                    s.floor_spawns,
+                    s.refounds,
                     s.mean_size,
                     s.mean_lineage,
                     s.food_delivered,
@@ -157,7 +162,27 @@ mod tests {
     #[test]
     fn a_uint_field_parses() {
         let mut cfg = Config::default();
-        apply_override(&mut cfg, "extinction_floor=3").unwrap();
-        assert_eq!(cfg.extinction_floor, 3);
+        apply_override(&mut cfg, "max_births_per_tick=3").unwrap();
+        assert_eq!(cfg.max_births_per_tick, 3);
+    }
+
+    #[test]
+    fn the_trail_levers_parse() {
+        let mut cfg = Config::default();
+        apply_override(&mut cfg, "trail_emission=2.5").unwrap();
+        apply_override(&mut cfg, "trail_evaporation=0.9").unwrap();
+        apply_override(&mut cfg, "trail_diffusion=0.1").unwrap();
+        assert_eq!(cfg.trail_emission, 2.5);
+        assert_eq!(cfg.trail_evaporation, 0.9);
+        assert_eq!(cfg.trail_diffusion, 0.1);
+    }
+
+    #[test]
+    fn productivity_levers_parse() {
+        let mut cfg = Config::default();
+        apply_override(&mut cfg, "productivity_weight=0.2").unwrap();
+        apply_override(&mut cfg, "productivity_decay=0.98").unwrap();
+        assert_eq!(cfg.productivity_weight, 0.2);
+        assert_eq!(cfg.productivity_decay, 0.98);
     }
 }

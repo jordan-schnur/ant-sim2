@@ -7,18 +7,18 @@ use crate::spatial::Spatial;
 use crate::{N_INPUTS, N_MEMORY};
 
 // --- Input vector layout. These indices are the contract with `brain.rs`. ---
-pub const IN_WHISKERS: usize = 0; // 5 whiskers x 7 channels = 35
-pub const IN_UNDERFOOT: usize = 35; // food, food-pheromone, alarm, home-trail
-pub const IN_COUNTS: usize = 39; // friends, foes
-pub const IN_PROPRIO: usize = 41; // energy, size, carrying, age
-pub const IN_BIAS: usize = 45;
-pub const IN_MEMORY: usize = 46; // N_MEMORY recurrent values
-pub const IN_HOME: usize = 50; // home vector: unit x, unit y, normalized distance
-pub const IN_HEADING: usize = 53; // sin, cos of the ant's own heading
+pub const IN_WHISKERS: usize = 0; // 5 whiskers x 8 channels = 40
+pub const IN_UNDERFOOT: usize = 40; // food, food-pheromone, alarm, home-trail
+pub const IN_COUNTS: usize = 44; // friends, foes
+pub const IN_PROPRIO: usize = 46; // energy, size, carrying, age
+pub const IN_BIAS: usize = 50;
+pub const IN_MEMORY: usize = 51; // N_MEMORY recurrent values
+pub const IN_HOME: usize = 55; // home vector: unit x, unit y, normalized distance
+pub const IN_HEADING: usize = 58; // sin, cos of the ant's own heading
 
 /// Radians relative to the ant's heading. Antennae, not eyes.
 pub const WHISKER_ANGLES: [f32; 5] = [-1.2, -0.6, 0.0, 0.6, 1.2];
-pub const CHANNELS_PER_WHISKER: usize = 7;
+pub const CHANNELS_PER_WHISKER: usize = 8;
 
 pub const CH_FOOD: usize = 0;
 pub const CH_FOOD_PHERO: usize = 1;
@@ -26,7 +26,11 @@ pub const CH_ALARM: usize = 2;
 pub const CH_OWN_SCENT: usize = 3;
 pub const CH_FOE_SCENT: usize = 4;
 pub const CH_BLOCKED: usize = 5;
+/// The shared, ownerless exploration/home trail (see `Pheromones::home`).
 pub const CH_HOME_TRAIL: usize = 6;
+/// Own-colony recent-trail intensity. Foe-trail is deliberately omitted —
+/// `CH_FOE_SCENT` already carries enemy-territory information.
+pub const CH_OWN_TRAIL: usize = 7;
 
 /// Square radius, in cells, for the friend/foe counters.
 pub const NEIGHBOUR_RADIUS: i32 = 2;
@@ -76,6 +80,7 @@ pub fn sense(
         }
         let c = grid.idx_clamped(ix, iy);
         let (own, foe) = phero.scent_for(c, colony);
+        let (own_trail, _) = phero.trail_for(c, colony);
         let d = cfg.phero_log_div;
         inputs[base + CH_FOOD] = (grid.food[c] / cfg.food_patch_max).min(1.0);
         inputs[base + CH_FOOD_PHERO] = squash_phero(phero.food[c], d);
@@ -84,6 +89,7 @@ pub fn sense(
         inputs[base + CH_FOE_SCENT] = squash_phero(foe, d);
         inputs[base + CH_BLOCKED] = if grid.stone[c] { 1.0 } else { 0.0 };
         inputs[base + CH_HOME_TRAIL] = squash_phero(phero.home[c], d);
+        inputs[base + CH_OWN_TRAIL] = squash_phero(own_trail, d);
     }
 
     // --- Underfoot ---
@@ -328,6 +334,24 @@ mod tests {
         let inputs = sense(0, &a, &g, &p2, &s, &cols(), &c);
         assert_eq!(whisker(&inputs, 2, CH_OWN_SCENT), 0.0);
         assert!(whisker(&inputs, 2, CH_FOE_SCENT) > 0.0);
+    }
+
+    #[test]
+    fn a_whisker_reads_own_colony_trail_but_not_a_foreign_one() {
+        let (c, a, g, mut p, s) = setup();
+        let ahead = g.idx(11, 8);
+        p.deposit_trail(ahead, 10.0, 1); // ant's own colony
+        let inputs = sense(0, &a, &g, &p, &s, &cols(), &c);
+        assert!(whisker(&inputs, 2, CH_OWN_TRAIL) > 0.0);
+
+        let mut p2 = Pheromones::new(&c);
+        p2.deposit_trail(ahead, 10.0, 7); // a foreign colony
+        let inputs = sense(0, &a, &g, &p2, &s, &cols(), &c);
+        assert_eq!(
+            whisker(&inputs, 2, CH_OWN_TRAIL),
+            0.0,
+            "a foreign colony's trail must not bleed into CH_OWN_TRAIL"
+        );
     }
 
     #[test]
